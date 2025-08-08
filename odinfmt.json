@@ -1,0 +1,8 @@
+{
+	"$schema": "https://raw.githubusercontent.com/DanielGavin/ols/master/misc/odinfmt.schema.json",
+	"collections": [
+		{ "name": "libs", "path": "./src/libs/" }
+	],
+	"tabs": false,
+	"tabs_width": 4
+}

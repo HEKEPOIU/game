@@ -1,0 +1,9 @@
+{
+	"$schema": "https://raw.githubusercontent.com/DanielGavin/ols/master/misc/ols.schema.json",
+	"enable_snippets": true,
+	"enable_references" : true,
+	"enable_rename" : true,
+	"collections": [
+		{ "name": "libs", "path": "./src/libs/" }
+	],
+}
