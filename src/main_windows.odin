@@ -8,11 +8,17 @@ import util "libs:utilities"
 
 running := true
 
+
 main :: proc() {
-    context.logger = log.create_console_logger(
-        opt = {.Level, .Terminal_Color, .Short_File_Path, .Procedure, .Line},
-    )
-    defer log.destroy_console_logger(context.logger)
+    when ODIN_DEBUG {
+        // TODO: Implement In Game console logger, to replace the OS console logger.
+        //       so that we can build game with  subsystem:windows
+        context.logger = log.create_console_logger(
+            opt = {.Level, .Terminal_Color, .Short_File_Path, .Procedure, .Line},
+        )
+        defer log.destroy_console_logger(context.logger)
+    }
+
     instance := win.HINSTANCE(win.GetModuleHandleW(nil))
     ensure(instance != nil, "Cant fetch current instance")
     class_name := win.L("game window")
@@ -88,14 +94,15 @@ main :: proc() {
             }
         }
         // TODO: Pass into game layer
-        move_input: input.input_2D = {
-            input.make_input_1D_from_keyboard(
-                {.Pos = new_keyboard_state.D, .Neg = new_keyboard_state.A},
-            ),
-            input.make_input_1D_from_keyboard(
-                {.Pos = new_keyboard_state.W, .Neg = new_keyboard_state.S},
-            ),
-        }
+        // move_input: input.input_2D = {
+        //     input.make_input_1D_from_keyboard(
+        //         {.Pos = new_keyboard_state.D, .Neg = new_keyboard_state.A},
+        //     ),
+        //     input.make_input_1D_from_keyboard(
+        //         {.Pos = new_keyboard_state.W, .Neg = new_keyboard_state.S},
+        //     ),
+        // }
+        // log.debugf("move_input: %v", move_input)
 
         util.swap(&old_keyboard_state, &new_keyboard_state)
     }
@@ -132,16 +139,30 @@ update_keyboard_input :: proc(
     was_down: bool,
     shortcut_set: input.keyboard_input_set,
 ) {
-    if vk_code == win.VK_W {
-        W = input.make_keyboard_input(is_down, was_down, shortcut_set)
+
+    if vk_code == win.VK_ESCAPE {
+        ESC = input.make_keyboard_input(is_down, was_down, shortcut_set)
+        return
     }
-    if vk_code == win.VK_S {
-        S = input.make_keyboard_input(is_down, was_down, shortcut_set)
+    if vk_code == win.VK_TAB {
+        TAB = input.make_keyboard_input(is_down, was_down, shortcut_set)
+        return
     }
-    if vk_code == win.VK_D {
-        D = input.make_keyboard_input(is_down, was_down, shortcut_set)
+    if (vk_code >= win.VK_0) && (vk_code <= win.VK_9) {
+        data[offset_of(keyboard_state.KEY_0) + uintptr(vk_code - win.VK_0)] =
+            input.make_keyboard_input(is_down, was_down, shortcut_set)
+        return
     }
-    if vk_code == win.VK_A {
-        A = input.make_keyboard_input(is_down, was_down, shortcut_set)
+    if (vk_code >= win.VK_A) && (vk_code <= win.VK_Z) {
+        data[offset_of(keyboard_state.A) + uintptr(vk_code - win.VK_A)] =
+            input.make_keyboard_input(is_down, was_down, shortcut_set)
+        return
     }
+    // SHIFT, CONTROL, ALT
+    if (vk_code >= win.VK_SHIFT) && (vk_code <= win.VK_MENU) {
+        data[offset_of(keyboard_state.SHIFT) + uintptr(vk_code - win.VK_SHIFT)] =
+            input.make_keyboard_input(is_down, was_down, shortcut_set)
+        return
+    }
+
 }
