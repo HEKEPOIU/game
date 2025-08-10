@@ -18,7 +18,13 @@ Axis :: enum u8 {
     Y,
 }
 
-Keyboard_Keys :: struct {
+Mouse_State :: struct {
+    mouse_position: [Axis]i32,
+    mouse_delta: [Axis]i32,
+    wheel_delta: f32
+}
+
+Keyboard_Mouse_Keys :: struct {
     // Move 0..9 together, so that loop assign won't be break
     KEY_0:   Keyboard_Input_Set,
     KEY_1:   Keyboard_Input_Set,
@@ -63,16 +69,23 @@ Keyboard_Keys :: struct {
     SHIFT:   Keyboard_Input_Set,
     CONTROL: Keyboard_Input_Set,
     ALT:     Keyboard_Input_Set,
-
     ESC:     Keyboard_Input_Set,
     TAB:     Keyboard_Input_Set,
+
+    MOUSE_LEFT:   Keyboard_Input_Set,
+    MOUSE_RIGHT:  Keyboard_Input_Set,
+    MOUSE_MIDDLE: Keyboard_Input_Set,
 }
 
-
 //TODO: fill all keyboard key state
-Keyboard_State :: struct #raw_union {
-    data:    [size_of(Keyboard_Keys)]Keyboard_Input_Set,
-    using _: Keyboard_Keys
+Keyboard_Mouse_Keys_State :: struct #raw_union {
+    data:    [size_of(Keyboard_Mouse_Keys)]Keyboard_Input_Set,
+    using _: Keyboard_Mouse_Keys,
+}
+
+Keyboard_Mouse_State :: struct {
+    using keyboard_mouse_key: Keyboard_Mouse_Keys_State,
+    using mouse_state: Mouse_State,
 }
 
 Keyboard_Input :: enum u8 {
