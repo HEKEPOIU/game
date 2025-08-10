@@ -3,7 +3,7 @@ package input
 import l "core:math/linalg"
 
 
-digit_input :: enum u8 {
+Digit_Input :: enum u8 {
     Down,
     Up,
     Hold,
@@ -18,64 +18,64 @@ Axis :: enum u8 {
     Y,
 }
 
-keyboard_keys :: struct {
+Keyboard_Keys :: struct {
     // Move 0..9 together, so that loop assign won't be break
-    KEY_0:   keyboard_input_set,
-    KEY_1:   keyboard_input_set,
-    KEY_2:   keyboard_input_set,
-    KEY_3:   keyboard_input_set,
-    KEY_4:   keyboard_input_set,
-    KEY_5:   keyboard_input_set,
-    KEY_6:   keyboard_input_set,
-    KEY_7:   keyboard_input_set,
-    KEY_8:   keyboard_input_set,
-    KEY_9:   keyboard_input_set,
+    KEY_0:   Keyboard_Input_Set,
+    KEY_1:   Keyboard_Input_Set,
+    KEY_2:   Keyboard_Input_Set,
+    KEY_3:   Keyboard_Input_Set,
+    KEY_4:   Keyboard_Input_Set,
+    KEY_5:   Keyboard_Input_Set,
+    KEY_6:   Keyboard_Input_Set,
+    KEY_7:   Keyboard_Input_Set,
+    KEY_8:   Keyboard_Input_Set,
+    KEY_9:   Keyboard_Input_Set,
 
     // Move A..Z together, so that loop assign won't be break
-    A:       keyboard_input_set,
-    B:       keyboard_input_set,
-    C:       keyboard_input_set,
-    D:       keyboard_input_set,
-    E:       keyboard_input_set,
-    F:       keyboard_input_set,
-    G:       keyboard_input_set,
-    H:       keyboard_input_set,
-    I:       keyboard_input_set,
-    J:       keyboard_input_set,
-    K:       keyboard_input_set,
-    L:       keyboard_input_set,
-    M:       keyboard_input_set,
-    N:       keyboard_input_set,
-    O:       keyboard_input_set,
-    P:       keyboard_input_set,
-    Q:       keyboard_input_set,
-    R:       keyboard_input_set,
-    S:       keyboard_input_set,
-    T:       keyboard_input_set,
-    U:       keyboard_input_set,
-    V:       keyboard_input_set,
-    W:       keyboard_input_set,
-    X:       keyboard_input_set,
-    Y:       keyboard_input_set,
-    Z:       keyboard_input_set,
+    A:       Keyboard_Input_Set,
+    B:       Keyboard_Input_Set,
+    C:       Keyboard_Input_Set,
+    D:       Keyboard_Input_Set,
+    E:       Keyboard_Input_Set,
+    F:       Keyboard_Input_Set,
+    G:       Keyboard_Input_Set,
+    H:       Keyboard_Input_Set,
+    I:       Keyboard_Input_Set,
+    J:       Keyboard_Input_Set,
+    K:       Keyboard_Input_Set,
+    L:       Keyboard_Input_Set,
+    M:       Keyboard_Input_Set,
+    N:       Keyboard_Input_Set,
+    O:       Keyboard_Input_Set,
+    P:       Keyboard_Input_Set,
+    Q:       Keyboard_Input_Set,
+    R:       Keyboard_Input_Set,
+    S:       Keyboard_Input_Set,
+    T:       Keyboard_Input_Set,
+    U:       Keyboard_Input_Set,
+    V:       Keyboard_Input_Set,
+    W:       Keyboard_Input_Set,
+    X:       Keyboard_Input_Set,
+    Y:       Keyboard_Input_Set,
+    Z:       Keyboard_Input_Set,
 
-    // Move Ctrl..Alt together, so that loop assign won't be break
-    CONTROL: keyboard_input_set,
-    ALT:     keyboard_input_set,
-    ESC:     keyboard_input_set,
+    // Move Shift..Alt together, so that loop assign won't be break
+    SHIFT:   Keyboard_Input_Set,
+    CONTROL: Keyboard_Input_Set,
+    ALT:     Keyboard_Input_Set,
 
-    SHIFT:   keyboard_input_set,
-    TAB:     keyboard_input_set,
+    ESC:     Keyboard_Input_Set,
+    TAB:     Keyboard_Input_Set,
 }
 
 
 //TODO: fill all keyboard key state
-keyboard_state :: struct #raw_union {
-    data:    [size_of(keyboard_keys)]keyboard_input_set,
-    using _: keyboard_keys
+Keyboard_State :: struct #raw_union {
+    data:    [size_of(Keyboard_Keys)]Keyboard_Input_Set,
+    using _: Keyboard_Keys
 }
 
-keyboard_input :: enum u8 {
+Keyboard_Input :: enum u8 {
     Down,
     Up,
     Hold,
@@ -85,27 +85,27 @@ keyboard_input :: enum u8 {
     Command,
 }
 
-digit_input_set :: bit_set[digit_input;u8]
-keyboard_input_set :: bit_set[keyboard_input;u8]
+Digit_Input_Set :: bit_set[Digit_Input;u8]
+Keyboard_Input_Set :: bit_set[Keyboard_Input;u8]
 
 // range from -1 to 1
-input_1D :: f32
-input_2D :: [2]input_1D
+Input_1D :: f32
+Input_2D :: [2]Input_1D
 
-is_down :: #force_inline proc "contextless" (input: digit_input_set) -> b8 {
+is_down :: #force_inline proc "contextless" (input: Digit_Input_Set) -> b8 {
     return .Down in input
 }
-is_up :: #force_inline proc "contextless" (input: digit_input_set) -> b8 {
+is_up :: #force_inline proc "contextless" (input: Digit_Input_Set) -> b8 {
     return .Up in input
 }
-is_hold :: #force_inline proc "contextless" (input: digit_input_set) -> b8 {
+is_hold :: #force_inline proc "contextless" (input: Digit_Input_Set) -> b8 {
     return .Hold in input
 }
 
 
 make_input_1D_from_digit :: #force_inline proc "contextless" (
-    input: [Dir]digit_input_set,
-) -> input_1D {
+    input: [Dir]Digit_Input_Set,
+) -> Input_1D {
     is_Pos := is_down(input[.Pos]) || is_hold(input[.Pos])
     is_Neg := is_down(input[.Neg]) || is_hold(input[.Neg])
     if is_Pos && !is_Neg {
@@ -118,23 +118,23 @@ make_input_1D_from_digit :: #force_inline proc "contextless" (
 }
 
 make_input_1D_from_keyboard :: #force_inline proc "contextless" (
-    input: [Dir]keyboard_input_set,
-) -> input_1D {
+    input: [Dir]Keyboard_Input_Set,
+) -> Input_1D {
     return make_input_1D_from_digit(
         {.Pos = as_digit_input(input[.Pos]), .Neg = as_digit_input(input[.Neg])},
     )
 }
 
 
-as_digit_input :: #force_inline proc "contextless" (input: keyboard_input_set) -> digit_input_set {
-    return transmute(digit_input_set)input
+as_digit_input :: #force_inline proc "contextless" (input: Keyboard_Input_Set) -> Digit_Input_Set {
+    return transmute(Digit_Input_Set)input
 }
 
 make_digit_input :: proc "contextless" (
     is_down: bool,
     was_down: bool,
 ) -> (
-    key_state: digit_input_set,
+    key_state: Digit_Input_Set,
 ) {
     if is_down && !was_down {
         key_state = {.Down, .Hold}
@@ -150,11 +150,11 @@ make_digit_input :: proc "contextless" (
 make_keyboard_input :: #force_inline proc "contextless" (
     is_down: bool,
     was_down: bool,
-    shortcut_set: keyboard_input_set,
+    shortcut_set: Keyboard_Input_Set,
 ) -> (
-    key_state: keyboard_input_set,
+    key_state: Keyboard_Input_Set,
 ) {
-    key_state = transmute(keyboard_input_set)make_digit_input(is_down, was_down)
+    key_state = transmute(Keyboard_Input_Set)make_digit_input(is_down, was_down)
     key_state = key_state + shortcut_set
     return
 }

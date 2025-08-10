@@ -47,7 +47,7 @@ main :: proc() {
     ensure(hwd != nil, "Window creation Failed")
 
 
-    keyboard_input := [2]input.keyboard_state{}
+    keyboard_input := [2]input.Keyboard_State{}
     old_keyboard_state := &keyboard_input[0]
     new_keyboard_state := &keyboard_input[1]
 
@@ -80,11 +80,11 @@ main :: proc() {
                 is_shift_down: u8 = u8((win.GetKeyState(win.VK_SHIFT) & (1 << 8)) != 0)
                 is_Lcommand_down: u8 = u8((win.GetKeyState(win.VK_LWIN) & (1 << 8)) != 0)
                 is_Rcommand_down: u8 = u8((win.GetKeyState(win.VK_RWIN) & (1 << 8)) != 0)
-                shortcut_set: input.keyboard_input_set = transmute(input.keyboard_input_set)(is_alt_down <<
-                        u8(input.keyboard_input.Alt) |
-                    is_ctrl_down << u8(input.keyboard_input.Ctrl) |
-                    is_shift_down << u8(input.keyboard_input.Shift) |
-                    ((is_Lcommand_down | is_Rcommand_down) << u8(input.keyboard_input.Command)))
+                shortcut_set: input.Keyboard_Input_Set = transmute(input.Keyboard_Input_Set)(is_alt_down <<
+                        u8(input.Keyboard_Input.Alt) |
+                    is_ctrl_down << u8(input.Keyboard_Input.Ctrl) |
+                    is_shift_down << u8(input.Keyboard_Input.Shift) |
+                    ((is_Lcommand_down | is_Rcommand_down) << u8(input.Keyboard_Input.Command)))
 
                 update_keyboard_input(new_keyboard_state, vk_code, is_down, was_down, shortcut_set)
 
@@ -133,34 +133,34 @@ win_proc :: proc "stdcall" (
 }
 
 update_keyboard_input :: proc(
-    using keyboard_state: ^input.keyboard_state,
+    keyboard_state: ^input.Keyboard_State,
     vk_code: win.WPARAM,
     is_down: bool,
     was_down: bool,
-    shortcut_set: input.keyboard_input_set,
+    shortcut_set: input.Keyboard_Input_Set,
 ) {
 
     if vk_code == win.VK_ESCAPE {
-        ESC = input.make_keyboard_input(is_down, was_down, shortcut_set)
+        keyboard_state.ESC = input.make_keyboard_input(is_down, was_down, shortcut_set)
         return
     }
     if vk_code == win.VK_TAB {
-        TAB = input.make_keyboard_input(is_down, was_down, shortcut_set)
+        keyboard_state.TAB = input.make_keyboard_input(is_down, was_down, shortcut_set)
         return
     }
     if (vk_code >= win.VK_0) && (vk_code <= win.VK_9) {
-        data[offset_of(keyboard_state.KEY_0) + uintptr(vk_code - win.VK_0)] =
+        keyboard_state.data[offset_of(keyboard_state.KEY_0) + uintptr(vk_code - win.VK_0)] =
             input.make_keyboard_input(is_down, was_down, shortcut_set)
         return
     }
     if (vk_code >= win.VK_A) && (vk_code <= win.VK_Z) {
-        data[offset_of(keyboard_state.A) + uintptr(vk_code - win.VK_A)] =
+        keyboard_state.data[offset_of(keyboard_state.A) + uintptr(vk_code - win.VK_A)] =
             input.make_keyboard_input(is_down, was_down, shortcut_set)
         return
     }
     // SHIFT, CONTROL, ALT
     if (vk_code >= win.VK_SHIFT) && (vk_code <= win.VK_MENU) {
-        data[offset_of(keyboard_state.SHIFT) + uintptr(vk_code - win.VK_SHIFT)] =
+        keyboard_state.data[offset_of(keyboard_state.SHIFT) + uintptr(vk_code - win.VK_SHIFT)] =
             input.make_keyboard_input(is_down, was_down, shortcut_set)
         return
     }
