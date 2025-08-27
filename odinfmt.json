@@ -1,7 +1,8 @@
 {
 	"$schema": "https://raw.githubusercontent.com/DanielGavin/ols/master/misc/odinfmt.schema.json",
 	"collections": [
-		{ "name": "libs", "path": "./src/libs/" }
+		{ "name": "libs", "path": "./src/libs/" },
+		{ "name": "thrid_party", "path": "./src/thrid_party/" }
 	],
 	"tabs": false,
 	"tabs_width": 4

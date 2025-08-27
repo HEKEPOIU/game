@@ -4,6 +4,7 @@
 	"enable_references" : true,
 	"enable_rename" : true,
 	"collections": [
-		{ "name": "libs", "path": "./src/libs/" }
+		{ "name": "libs", "path": "./src/libs/" },
+		{ "name": "thrid_party", "path": "./src/thrid_party/" }
 	],
 }

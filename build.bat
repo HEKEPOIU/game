@@ -7,4 +7,4 @@
 
 ::
 odin build src -out:build/game.exe -debug -collection:libs=./src/libs/^
-    -vet-shadowing -vet-semicolon 
+    -collection:thrid_party=./src/thrid_party/ -vet-shadowing -vet-semicolon 
