@@ -1,11 +1,22 @@
+# The Game
+
+This is a game project that barely not using any third party library.
+
+The following are the list of implemented/working features:
+
+- keyboard input
+- controller support via HID api and parsing SDL controller database. (need more testing, and will add other api like xinput)
+- audio support via wasapi (working on, now just playing some sine wav.) 
+    - muliti thread audio, audio mixing... are not implemented yet, it will done when I need it.
+
 # Notes:
 
 If you xbox controller trigger can only work one side please see this [link](https://www.reddit.com/r/xbox/comments/qer8pv/xbox_controller_right_and_left_trigger_merged/),
 basically Microsoft change they driver that make controller trigger merge into one value,
-I just can't solve this, but later when we support xinput it should be fix easily.
+I just can't solve this for new, when we support xinput it should be fix easily.
 
 
-## Odin Notes:
+## Some Odin Notes:
 
 ```odin
 // #subtype are same as using, but can't access the field member via parent struct

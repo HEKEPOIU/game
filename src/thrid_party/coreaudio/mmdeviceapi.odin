@@ -13,11 +13,18 @@ EDataFlow :: enum i32 {
     eAll,
 }
 
-DEVICE_STATE_ACTIVE :: 0x00000001
-DEVICE_STATE_DISABLED :: 0x00000002
-DEVICE_STATE_NOTPRESENT :: 0x00000004
-DEVICE_STATE_UNPLUGGED :: 0x00000008
-DEVICE_STATEMASK_ALL :: 0x0000000f
+Device_State_flags :: bit_set[Device_State_flag;windows.DWORD]
+Device_State_flag :: enum i32 {
+    Active,
+    Disabled,
+    NotPresent,
+    Unplugged,
+}
+
+DEVICE_STATEMASK_ALL :: Device_State_flags{.Active, .Disabled, .NotPresent, .Unplugged}
+// it should be defined in winerror.odin, but odin not define it.
+ERROR_NOT_FOUND :: 1168
+
 
 IActivateAudioInterfaceAsyncOperation_UUID_STRING :: "72A22D78-CDE4-431D-B8CC-843A71199B6D"
 IActivateAudioInterfaceAsyncOperation_UUID := &windows.IID {
@@ -147,7 +154,7 @@ IMMDeviceVtbl :: struct {
     ) -> windows.HRESULT,
     GetId:              proc "system" (
         this: ^IMMDevice,
-        ppstrId: windows.LPWSTR,
+        ppstrId: ^windows.LPWSTR, // ?? misbinding?
     ) -> windows.HRESULT,
     GetState:           proc "system" (
         this: ^IMMDevice,
@@ -222,9 +229,12 @@ IMMDeviceEnumeratorVtbl :: struct {
     ) -> windows.HRESULT,
     RegisterEndpointNotificationCallback:   proc "system" (
         this: ^IMMDeviceEnumerator,
-        pClient: rawptr,
+        pClient: ^IMMNotificationClient,
     ) -> windows.HRESULT,
-    UnregisterEndpointNotificationCallback: proc "system" (pClient: rawptr) -> windows.HRESULT,
+    UnregisterEndpointNotificationCallback: proc "system" (
+        this: ^IMMDeviceEnumerator,
+        pClient: ^IMMNotificationClient,
+    ) -> windows.HRESULT,
 }
 
 
@@ -262,7 +272,7 @@ IMMNotificationClientVtbl :: struct {
     OnDeviceStateChanged:   proc "system" (
         this: ^IMMNotificationClient,
         pwstrDeviceId: windows.LPCWSTR,
-        dwnewState: windows.DWORD,
+        dwnewState: Device_State_flags,
     ) -> windows.HRESULT,
     OnDeviceAdded:          proc "system" (
         this: ^IMMNotificationClient,

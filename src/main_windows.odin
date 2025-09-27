@@ -7,9 +7,12 @@ import "core:math"
 import "core:mem"
 import vmem "core:mem/virtual"
 import "core:slice"
+import "core:strings"
 import win "core:sys/windows"
+import "core:time"
 import input "libs:input"
 import util "libs:utilities"
+import "thrid_party:coreaudio"
 
 running := true
 
@@ -33,6 +36,84 @@ delete_registered_device :: proc(registered_device: ^Registed_Device) {
     free(registered_device.preparsed_data)
     clear(&registered_device.button_caps)
     clear(&registered_device.value_caps)
+}
+
+GAudioManager :: struct {
+    #subtype immnotificationclient: coreaudio.IMMNotificationClient,
+    selected_device:       ^coreaudio.IMMDevice,
+    audio_client:          ^coreaudio.IAudioClient3,
+    audio_render_client:   ^coreaudio.IAudioRenderClient,
+    buffer_ready_handle:   win.HANDLE,
+    buffer_size:           u32,
+    ref_count:             u32, // TODO: Test can we just don't use atomic
+    is_initialized:        b8,
+}
+
+release_AudioManager :: proc(manager: ^GAudioManager) {
+    manager.is_initialized = false
+    manager.audio_client->Stop()
+    manager.audio_client->Release()
+    manager.audio_render_client->Release()
+    manager.selected_device->Release()
+    win.CloseHandle(manager.buffer_ready_handle)
+}
+
+try_get_default_audio_device :: proc(
+    notify_client: ^GAudioManager,
+    device_enumerator: ^coreaudio.IMMDeviceEnumerator,
+) -> bool {
+    result := device_enumerator->GetDefaultAudioEndpoint(
+        .eRender,
+        .eConsole,
+        &notify_client.selected_device,
+    )
+    if result != win.S_OK do return false
+    result = notify_client.selected_device->Activate(
+        coreaudio.IAudioClient3_UUID,
+        win.CLSCTX_INPROC_SERVER,
+        nil,
+        (^rawptr)(&notify_client.audio_client),
+    )
+    if result != win.S_OK do return false
+    defalut_period: coreaudio.REFERENCE_TIME = 0
+    minimum_period: coreaudio.REFERENCE_TIME = 0
+
+    result = notify_client.audio_client->GetDevicePeriod(&defalut_period, &minimum_period)
+    if result != win.S_OK do return false
+
+    mix_format: ^win.WAVEFORMATEX = ---
+    {
+        result = notify_client.audio_client->GetMixFormat(&mix_format)
+        ensure(result == win.S_OK, "Failed to get mix format")
+        result = notify_client.audio_client->Initialize(
+            .SHARED,
+            {.Event_Callback},
+            minimum_period, // minimum Buffer Requested
+            0, // Use defalut period
+            mix_format,
+            nil,
+        )
+        // ensure(result == win.S_OK, "Failed to initialize audio client")
+    }
+
+    notify_client.audio_client->GetService(
+        coreaudio.IAudioRenderClient_UUID,
+        (^rawptr)(&notify_client.audio_render_client),
+    )
+
+    // WARN: currently we only fill the defalut_period long buffer (in current machine are 10 ms),
+    // and singal thread means that if 1000ms/fps < defalut_period will cause glitch.
+    // NOTE:: left 1 ms for safety
+    notify_client.buffer_size = u32(
+        (f32(defalut_period * 100) / f32(time.Second)) * f32(mix_format.nSamplesPerSec),
+    )
+
+    notify_client.buffer_ready_handle = win.CreateEventW(nil, false, false, nil)
+    notify_client.audio_client->SetEventHandle(notify_client.buffer_ready_handle)
+    notify_client.audio_client->Start()
+    notify_client.is_initialized = true
+
+    return true
 }
 
 
@@ -63,7 +144,7 @@ main :: proc() {
 
     instance := win.HINSTANCE(win.GetModuleHandleW(nil))
     ensure(instance != nil, "Cant fetch current instance")
-    class_name := win.L("game window")
+    class_name: cstring16 = "game window"
     cls := win.WNDCLASSW {
         lpfnWndProc   = win_proc,
         lpszClassName = class_name,
@@ -87,6 +168,114 @@ main :: proc() {
         nil,
     )
     ensure(hwd != nil, "Window creation Failed")
+
+    {
+        result := win.CoInitializeEx(nil, .MULTITHREADED | .DISABLE_OLE1DDE)
+        ensure(result == win.S_OK, "Failed to initialize COM")
+    }
+
+    iunknown_vtable: win.IUnknown_VTable = {}
+
+    // TODO: Handle when user unplug device, on now we can't test it properly.
+    notify_client: GAudioManager = {
+        immnotificationclient = {
+            vtable = &{
+                IUnKnownVtbl = {
+                    QueryInterface = proc "system" (
+                        This: ^win.IUnknown,
+                        riid: win.REFIID,
+                        ppvObject: ^rawptr,
+                    ) -> win.HRESULT {
+                        if riid == win.IUnknown_UUID {
+                            This->AddRef()
+                            ppvObject^ = (^win.IUnknown)(This)
+                        } else if riid == coreaudio.IMMNotificationClient_UUID {
+                            This->AddRef()
+                            ppvObject^ = (^coreaudio.IMMNotificationClient)(This)
+                        } else {
+                            ppvObject^ = nil
+                            return win.HRESULT_FROM_WIN32(win.E_NOINTERFACE)
+                        }
+                        return win.S_OK
+                    },
+                    AddRef = proc "system" (This: ^win.IUnknown) -> u32 {
+                        ref_self := (^GAudioManager)(This)
+                        ref_self.ref_count += 1
+                        return ref_self.ref_count
+                    },
+                    Release = proc "system" (This: ^win.IUnknown) -> u32 {
+                        ref_self := (^GAudioManager)(This)
+                        ref_self.ref_count -= 1
+                        if ref_self.ref_count == 0 {
+                            // context = runtime.default_context()
+                            // free(This) // Is it need?
+                            return 0
+                        }
+                        return ref_self.ref_count
+                    },
+                },
+                OnDeviceStateChanged = proc "system" (
+                    This: ^coreaudio.IMMNotificationClient,
+                    pwstrDeviceId: win.LPCWSTR,
+                    dwnewState: coreaudio.Device_State_flags,
+                ) -> win.HRESULT {
+                    context = runtime.default_context()
+                    log.info("OnDeviceStateChanged")
+                    return win.S_OK
+                },
+                OnDeviceAdded = proc "system" (
+                    This: ^coreaudio.IMMNotificationClient,
+                    pwstrDeviceId: win.LPCWSTR,
+                ) -> win.HRESULT {
+                    return win.S_OK
+                },
+                OnDeviceRemoved = proc "system" (
+                    This: ^coreaudio.IMMNotificationClient,
+                    pwstrDefaultDeviceId: ^win.LPCWSTR,
+                ) -> win.HRESULT {
+                    return win.S_OK
+                },
+                OnDefaultDeviceChanged = proc "system" (
+                    This: ^coreaudio.IMMNotificationClient,
+                    flow: coreaudio.EDataFlow,
+                    role: coreaudio.ERole,
+                    pwstrDefaultDeviceId: ^win.LPWSTR,
+                ) -> win.HRESULT {
+                    // TODO: Test existing game will not change output when default device changed.
+                    return win.S_OK
+                },
+                OnPropertyValueChanged = proc "system" (
+                    This: ^coreaudio.IMMNotificationClient,
+                    pwstrDeviceId: ^win.LPWSTR,
+                    key: win.PROPERTYKEY,
+                ) -> win.HRESULT {
+                    return win.S_OK
+                },
+            },
+        },
+    }
+
+
+    // TODO: Use separate thread to handle audio.
+    // WARN: Currently are not handle the case that user unplug the audio device.
+    device_enumerator: ^coreaudio.IMMDeviceEnumerator
+    {
+        result := win.CoCreateInstance(
+            &coreaudio.CLSID_MMDeviceEnumerator,
+            nil,
+            win.CLSCTX_INPROC_SERVER,
+            coreaudio.IMMDeviceEnumerator_UUID,
+            (^rawptr)(&device_enumerator),
+        )
+        ensure(result == win.S_OK, "Failed to create device_enumerator")
+    }
+    defer device_enumerator->Release()
+
+    {
+        result := device_enumerator->RegisterEndpointNotificationCallback(&notify_client)
+        ensure(result == win.S_OK, "Failed to register endpoint notification callback")
+    }
+    defer device_enumerator->UnregisterEndpointNotificationCallback(&notify_client)
 
 
     registed_device: Registed_Device
@@ -126,7 +315,28 @@ main :: proc() {
     old_input_state := &input_state[0]
     new_input_state := &input_state[1]
 
+
+    output_builder: strings.Builder
+    strings.builder_init(&output_builder)
+    output_stream := strings.to_writer(&output_builder)
+    target_fps :: 144 // 144f/s
+    target_duration := time.Second / (target_fps)
+    // ensure(
+    //     time.duration_nanoseconds(target_duration) / 100 <= defalut_period,
+    //     "Plesae increase audio buffer size.",
+    // )
+
+
+    total_frames := 0
+    total_time: f32 = 0.
+
+    try_get_default_audio_device(&notify_client, device_enumerator)
+
+
+    defer release_AudioManager(&notify_client)
+
     for running {
+        start_time := time.tick_now()
         new_input_state^ = {}
         for prev_key, i in old_input_state.kbm_key.data {
             new_input_state.kbm_key.data[i] = (prev_key & {.Hold})
@@ -140,26 +350,61 @@ main :: proc() {
         new_input_state.mouse_state.mouse_position = old_input_state.mouse_state.mouse_position
 
         update_input_state(new_input_state, controller_map, &registed_device)
-        // TODO: Pass into game layer
-        // move_input: input.input_2D = {
-        //     input.make_input_1D_from_keyboard(
-        //         {.Pos = new_keyboard_state.D, .Neg = new_keyboard_state.A},
-        //     ),
-        //     input.make_input_1D_from_keyboard(
-        //         {.Pos = new_keyboard_state.W, .Neg = new_keyboard_state.S},
-        //     ),
-        // }
-        // util.debug_printf("move_input: %v", move_input)
 
         if new_input_state.mouse_state.wheel_delta != 0 {
             util.debug_printf("mouse_input: %v", new_input_state.mouse_state.wheel_delta)
         }
-        // util.debug_printf("controller_input: {:.2f}", new_input_state.controller_state.analogs)
-        // if new_input_state.controller_state.digitals[5] != {} {
-        //     util.debug_printf("controller_input: {}", new_input_state.controller_state.digitals[5])
+        // for i in input.Controller_Known_Value.DPad_Up ..= input.Controller_Known_Value.Paddle_4 {
+        //     v := input.get_controller_varient(&new_input_state.controller_state, i).digital^
+        //     pv := false
+        //     if v != {} do pv = true
+        //     output_text := fmt.aprintf("{}: {}, ", i, pv)
+        //     io.write_string(output_stream, output_text)
         // }
+        // util.debug_printf(string(output_builder.buf[:]))
+        // strings.builder_reset(&output_builder)
+        // for i in input.Controller_Known_Value.Left_Trigger ..= input.Controller_Known_Value.Right_Stick_Y {
+        //     v := input.get_controller_varient(&new_input_state.controller_state, i).analog^
+        //
+        //     output_text := fmt.aprintf("{}: {:.2f}, ", i, v)
+        //     io.write_string(output_stream, output_text)
+        // }
+        // util.debug_printf(string(output_builder.buf[:]))
+        // strings.builder_reset(&output_builder)
+
+        if win.WaitForSingleObject(notify_client.buffer_ready_handle, 0) == win.WAIT_OBJECT_0 {
+            buffer_padding: u32
+
+            notify_client.audio_client->GetCurrentPadding(&buffer_padding)
+
+            frameCount := notify_client.buffer_size - buffer_padding
+            buffer: [^]f32
+            if (notify_client.audio_render_client->GetBuffer(frameCount, (^^u8)(&buffer)) ==
+                   win.S_OK) {
+                defer notify_client.audio_render_client->ReleaseBuffer(frameCount, {})
+                for i in 0 ..< frameCount {
+                    sine := math.sin_f32(total_time)
+                    buffer[0] = sine * 0.1
+                    buffer[1] = sine * 0.1
+                    buffer = &buffer[2]
+                    total_time += 0.05
+                }
+            }
+        }
+
+
+        ms_elapsed := time.tick_since(start_time)
+        if ms_elapsed < target_duration {
+            win.timeBeginPeriod(1)
+            time.accurate_sleep(target_duration - ms_elapsed)
+            win.timeEndPeriod(1)
+        }
+
 
         util.swap(&old_input_state, &new_input_state)
+        total_time := time.tick_since(start_time)
+        // log.infof("FPS: {:.2f}", 1. / time.duration_seconds(total_time))
+        total_frames += 1
     }
 
 }
@@ -237,8 +482,8 @@ get_shortcut_set :: #force_inline proc "contextless" (
     is_shift_down: u8 = u8((win.GetKeyState(win.VK_SHIFT) & (1 << 8)) != 0)
     is_Lcommand_down: u8 = u8((win.GetKeyState(win.VK_LWIN) & (1 << 8)) != 0)
     is_Rcommand_down: u8 = u8((win.GetKeyState(win.VK_RWIN) & (1 << 8)) != 0)
-    shortcut_set =
-    transmute(input.Keyboard_Input_Set)(is_alt_down << u8(input.Keyboard_Input.Alt) |
+    shortcut_set = transmute(input.Keyboard_Input_Set)(is_alt_down <<
+            u8(input.Keyboard_Input.Alt) |
         is_ctrl_down << u8(input.Keyboard_Input.Ctrl) |
         is_shift_down << u8(input.Keyboard_Input.Shift) |
         ((is_Lcommand_down | is_Rcommand_down) << u8(input.Keyboard_Input.Command)))
@@ -327,11 +572,11 @@ update_input_state :: proc(
             err := vmem.arena_init_buffer(&arena, buf[:])
             ensure(err == .None, "stack arean init failed")
             arena_allocator := vmem.arena_allocator(&arena)
-            defer util.debug_printf(
-                "arena_allocator: {}, used : {}",
-                arena_allocator,
-                arena.total_used,
-            )
+            // defer util.debug_printf(
+            //     "arena_allocator: {}, used : {}",
+            //     arena_allocator,
+            //     arena.total_used,
+            // )
             dwSize: win.UINT = ---
             if win.GetRawInputData(
                    win.HRAWINPUT(msg.lParam),
@@ -434,10 +679,11 @@ update_input_state :: proc(
                         continue
                     }
                     if vcap.NotRange.Usage == input.HAT_SWITCH_ID {
-                        registered_device.value_slice =
-                        registered_device.value_caps[value_start + 1:i]
-                        registered_device.hat_switch_slice =
-                        registered_device.value_caps[i:len(registered_device.value_caps)]
+                        registered_device.value_slice = registered_device.value_caps[value_start +
+                        1:i]
+                        registered_device.hat_switch_slice = registered_device.value_caps[i:len(
+                            registered_device.value_caps,
+                        )]
                         break
                     }
                 }
@@ -538,8 +784,11 @@ update_input_state :: proc(
                     hat_switch_slice,
                     arena_allocator,
                 ) or_continue
-                hat_switch_states =
-                make([]u32, len(hat_switch_raw_states), arena_allocator) or_continue
+                hat_switch_states = make(
+                    []u32,
+                    len(hat_switch_raw_states),
+                    arena_allocator,
+                ) or_continue
 
                 for v, i in hat_switch_raw_states {
                     value_usage := hat_switch_slice[i]
@@ -598,11 +847,23 @@ update_input_state :: proc(
                             was_down := .Hold in input_set
                             target.digital^ = input.make_digit_input(is_down, was_down)
                         case .Left_Trigger ..= .Right_Trigger:
-                            value := math.remap(r_value, min, max, 0, 1)
+                            value: f32
+                            if m.single.is_inverted {
+                                util.debug_printf("is_inverted")
+                                value = math.remap(r_value, min, max, 0, 1)
+                            } else {
+                                value = math.remap(r_value, min, max, 1, 0)
+                            }
                             if value < input.TRIGGER_DEAD_ZONE {value = 0}
                             target.analog^ = value
                         case .Left_Stick_X ..= .Right_Stick_Y:
-                            value := math.remap(r_value, min, max, -1, 1)
+                            value: f32
+                            if m.single.is_inverted {
+                                util.debug_printf("is_inverted")
+                                value = math.remap(r_value, min, max, 1, -1)
+                            } else {
+                                value = math.remap(r_value, min, max, -1, 1)
+                            }
                             if math.abs(value) < input.CONTROLLER_DEAD_ZONE {value = 0}
                             target.analog^ = value
                         }
@@ -669,6 +930,7 @@ update_input_state :: proc(
                     unreachable()
                 }
             }
+            log.debugf("Controller Button States : {}, len: {}", button_states, len(button_states))
         case win.WM_INPUT_DEVICE_CHANGE:
             handle := win.HANDLE(uintptr(msg.lParam))
             GIDC_ARRIVAL :: 1

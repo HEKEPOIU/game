@@ -3,6 +3,7 @@
 package coreaudio
 import "core:sys/windows"
 
+// 100 nanoseconds
 REFERENCE_TIME :: windows.LONGLONG
 
 Audio_Client_Stream_Flags :: bit_set[Audio_Client_Stream_Flag;windows.DWORD]
