@@ -10,11 +10,14 @@ import "core:slice"
 import "core:strings"
 import win "core:sys/windows"
 import "core:time"
+import "libs:graphic"
 import input "libs:input"
 import util "libs:utilities"
 import "thrid_party:coreaudio"
 
 running := true
+WIDTH :: 1280
+HEIGHT :: 720
 
 Registed_Device :: struct {
     is_initialized:   b8,
@@ -57,6 +60,7 @@ release_AudioManager :: proc(manager: ^GAudioManager) {
     manager.selected_device->Release()
     win.CloseHandle(manager.buffer_ready_handle)
 }
+
 
 try_get_default_audio_device :: proc(
     notify_client: ^GAudioManager,
@@ -116,7 +120,6 @@ try_get_default_audio_device :: proc(
     return true
 }
 
-
 main :: proc() {
     when ODIN_DEBUG {
         // TODO: Implement In Game console logger, to replace the OS console logger.
@@ -154,27 +157,46 @@ main :: proc() {
 
     class := win.RegisterClassW(&cls)
     ensure(class != 0, "WNDCLASS create failed")
+
+
+    //TODO: Need to handle DPI change case, there is an WM_DPICHANGED message can be handle
+    win.SetProcessDPIAware()
+    win.SetProcessDpiAwarenessContext(win.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE)
+
+    hMon := win.MonitorFromPoint({0, 0}, win.Monitor_From_Flags.MONITOR_DEFAULTTOPRIMARY)
+    dpiX, dpiY: win.UINT = 96, 96
+    win.GetDpiForMonitor(hMon, win.MONITOR_DPI_TYPE.MDT_EFFECTIVE_DPI, &dpiX, &dpiY)
+    surface_rect := win.RECT{0, 0, WIDTH, HEIGHT}
+    // Convert rect size to actual window size, based on dpi
+    // the window size are include the border and title bar,
+    // so need to use this function to convert.
+    win.AdjustWindowRectExForDpi(&surface_rect, win.WS_OVERLAPPEDWINDOW, false, 0, dpiX)
+
+    render_context: graphic.render_context
     hwd := win.CreateWindowW(
         class_name,
         class_name,
         win.WS_OVERLAPPEDWINDOW | win.WS_VISIBLE,
-        100,
-        100,
-        1200,
-        720,
+        win.CW_USEDEFAULT,
+        win.CW_USEDEFAULT,
+        surface_rect.right - surface_rect.left,
+        surface_rect.bottom - surface_rect.top,
         nil,
         nil,
         instance,
-        nil,
+        (rawptr)(&render_context),
     )
+
+    graphic.init_render_context(&render_context, hwd)
+    defer graphic.destroy_render_context(&render_context)
+    win.ShowWindow(hwd, win.SW_SHOW)
+
     ensure(hwd != nil, "Window creation Failed")
 
     {
         result := win.CoInitializeEx(nil, .MULTITHREADED | .DISABLE_OLE1DDE)
         ensure(result == win.S_OK, "Failed to initialize COM")
     }
-
-    iunknown_vtable: win.IUnknown_VTable = {}
 
     // TODO: Handle when user unplug device, on now we can't test it properly.
     notify_client: GAudioManager = {
@@ -406,7 +428,6 @@ main :: proc() {
         // log.infof("FPS: {:.2f}", 1. / time.duration_seconds(total_time))
         total_frames += 1
     }
-
 }
 
 
@@ -418,20 +439,33 @@ win_proc :: proc "stdcall" (
 ) -> win.LRESULT {
     result: win.LRESULT
     switch (msg) {
+    case win.WM_CREATE:
+        create_struct := (^win.CREATESTRUCTW)((uintptr)(lparam))
+        win.SetWindowLongPtrW(
+            hwnd,
+            win.GWLP_USERDATA,
+            (win.LONG_PTR)((uintptr)(create_struct.lpCreateParams)),
+        )
+
     case win.WM_DESTROY, win.WM_QUIT:
         //NOTE: Must be here, since window directed messages are not dispatched.
         running = false
     case win.WM_KEYDOWN, win.WM_KEYUP:
-        runtime.print_string("[Error]: Keyboard Input came in through a non-dispatch message")
+        runtime.print_string("[Error]: Keyboard Input came in through a non-dispatch message\n")
         runtime.trap()
     case win.WM_INPUT_DEVICE_CHANGE:
         // WARN: When user plug in controller between exe start and windows actually open,
         //       it will cause message came in through a non-dispatch message
         //       currently I don't think we need to handle this problem, just ignore it.
-        runtime.print_string("[Error]: Controller Input came in through a non-dispatch message")
+        runtime.print_string("[WARN]: Controller Input came in through a non-dispatch message\n")
         fallthrough
     case win.WM_PAINT:
-        fallthrough
+        render_context := (^graphic.render_context)(
+            (uintptr)(win.GetWindowLongPtrW(hwnd, win.GWLP_USERDATA)),
+        )
+        context = runtime.default_context()
+        
+        graphic.render(render_context)
     case:
         result = win.DefWindowProcW(hwnd, msg, wparam, lparam)
     }
