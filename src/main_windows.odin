@@ -11,7 +11,7 @@ import "core:strings"
 import win "core:sys/windows"
 import "core:time"
 import "libs:graphic"
-import input "libs:input"
+import "libs:input"
 import util "libs:utilities"
 import "thrid_party:coreaudio"
 
@@ -292,11 +292,11 @@ main :: proc() {
         ensure(result == win.S_OK, "Failed to create device_enumerator")
     }
     defer device_enumerator->Release()
-
     {
         result := device_enumerator->RegisterEndpointNotificationCallback(&notify_client)
         ensure(result == win.S_OK, "Failed to register endpoint notification callback")
     }
+
     defer device_enumerator->UnregisterEndpointNotificationCallback(&notify_client)
 
 
@@ -348,12 +348,10 @@ main :: proc() {
     //     "Plesae increase audio buffer size.",
     // )
 
-
     total_frames := 0
     total_time: f32 = 0.
 
     try_get_default_audio_device(&notify_client, device_enumerator)
-
 
     defer release_AudioManager(&notify_client)
 
@@ -404,15 +402,17 @@ main :: proc() {
             if (notify_client.audio_render_client->GetBuffer(frameCount, (^^u8)(&buffer)) ==
                    win.S_OK) {
                 defer notify_client.audio_render_client->ReleaseBuffer(frameCount, {})
-                for i in 0 ..< frameCount {
-                    sine := math.sin_f32(total_time)
-                    buffer[0] = sine * 0.1
-                    buffer[1] = sine * 0.1
-                    buffer = &buffer[2]
-                    total_time += 0.05
-                }
+                // for i in 0 ..< frameCount {
+                //     sine := math.sin_f32(total_time)
+                //     buffer[0] = sine * 0.1
+                //     buffer[1] = sine * 0.1
+                //     buffer = &buffer[2]
+                //     total_time += 0.05
+                // }
             }
         }
+
+        graphic.render(&render_context)
 
 
         ms_elapsed := time.tick_since(start_time)
@@ -437,16 +437,15 @@ win_proc :: proc "stdcall" (
     wparam: win.WPARAM,
     lparam: win.LPARAM,
 ) -> win.LRESULT {
-    result: win.LRESULT
+    result: win.LRESULT = 0
     switch (msg) {
-    case win.WM_CREATE:
-        create_struct := (^win.CREATESTRUCTW)((uintptr)(lparam))
-        win.SetWindowLongPtrW(
-            hwnd,
-            win.GWLP_USERDATA,
-            (win.LONG_PTR)((uintptr)(create_struct.lpCreateParams)),
-        )
-
+    // case win.WM_CREATE:
+    // create_struct := (^win.CREATESTRUCTW)((uintptr)(lparam))
+    // win.SetWindowLongPtrW(
+    //     hwnd,
+    //     win.GWLP_USERDATA,
+    //     (win.LONG_PTR)((uintptr)(create_struct.lpCreateParams)),
+    // )
     case win.WM_DESTROY, win.WM_QUIT:
         //NOTE: Must be here, since window directed messages are not dispatched.
         running = false
@@ -459,13 +458,14 @@ win_proc :: proc "stdcall" (
         //       currently I don't think we need to handle this problem, just ignore it.
         runtime.print_string("[WARN]: Controller Input came in through a non-dispatch message\n")
         fallthrough
-    case win.WM_PAINT:
-        render_context := (^graphic.render_context)(
-            (uintptr)(win.GetWindowLongPtrW(hwnd, win.GWLP_USERDATA)),
-        )
-        context = runtime.default_context()
-        
-        graphic.render(render_context)
+    // case win.WM_PAINT:
+        // render_context := (^graphic.render_context)(
+        //     (uintptr)(win.GetWindowLongPtrW(hwnd, win.GWLP_USERDATA)),
+        // )
+        // context = runtime.default_context()
+        //
+        // graphic.render(render_context)
+        // fallthrough
     case:
         result = win.DefWindowProcW(hwnd, msg, wparam, lparam)
     }
@@ -1017,7 +1017,6 @@ update_input_state :: proc(
             } else {
                 util.debug_printf("you controller currently not support: {}", id_with_version)
             }
-
         case:
             win.TranslateMessage(&msg)
             win.DispatchMessageW(&msg)
