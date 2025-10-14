@@ -1,0 +1,14 @@
+// raddbg 0.9.22 project file
+
+recent_file: path: "D:/project/game/src/libs/graphic/helper_windows.odin"
+recent_file: path: "D:/project/game/src/libs/graphic/render_context_windows.odin"
+recent_file: path: "D:/a/_work/1/s/src/vctools/crt/vcstartup/src/startup/exe_common.inl"
+recent_file: path: "C:/Users/decno/scoop/apps/odin/current/base/runtime/core.odin"
+recent_file: path: "D:/project/game/src/libs/utilities/util_windows.odin"
+recent_file: path: "C:/Users/decno/scoop/apps/odin/current/base/runtime/core_builtin.odin"
+target:
+{
+  executable: "build/game.exe"
+  working_directory: build
+  enabled: 1
+}

@@ -6,5 +6,8 @@
 ::--subsystem:windows
 
 ::
+xcopy assets build\assets /s /i /y
+
 odin build src -out:build/game.exe -debug -collection:libs=./src/libs/^
     -collection:thrid_party=./src/thrid_party/ -vet-shadowing -vet-semicolon 
+

@@ -10,6 +10,13 @@ import "core:strconv"
 import "core:strings"
 
 
+// TODO: Move it to FileIo module
+// NOTE: This function will allocate memory in context.allocator, 
+// but don't free it, because exe dir will never change at runtime.
+get_exe_dir :: proc {
+    get_exe_dir_win,
+}
+
 swap :: #force_inline proc(a: ^$T, b: ^T) {
     temp := a^
     a^ = b^
@@ -39,7 +46,7 @@ count_bytes :: proc "contextless" (data: []byte, c: byte) -> int #no_bounds_chec
     // Still use avx2 size are because odin will simulate not support instruction.
     // Like currently use sse instruction to simulate avx2 instruction.
     // and i found use u8x32(256) in sse4.2 are faster then use sse native u8x16(128)
-    // they are because for loop overhead, and that also thy use #no_bounds_check. 
+    // they are because for loop overhead, and that also thy use #no_bounds_check.
     // (you can remove #no_bounds_check to see speed different)
     AVX2_SIMD_SIZE :: 32
     if l < AVX2_SIMD_SIZE {
@@ -169,6 +176,7 @@ debug_printf :: #force_inline proc(fmt_str: string, args: ..any, location := #ca
     log.debugf(fmt_str, ..args, location = location)
 }
 
+
 /* TODO: put it in the test file.
     brenchmark code:
     // this for not let cache effect timing result.
@@ -202,10 +210,10 @@ debug_printf :: #force_inline proc(fmt_str: string, args: ..any, location := #ca
 //
 //
 //     // Use still avx2 are because odin will simulate the avx2 instruction,
-//     // if the compile target don't support it. 
+//     // if the compile target don't support it.
 //     // Like current use sse instruction to simulate avx2 instruction.
 //     // and i found use u8x32(256) in sse4.2 are faster then use sse native u8x16(128)
-//     // currently guess the asm code 
+//     // currently guess the asm code
 //     AVX2_SIMD_SIZE :: 16
 //     c_vec_256: simd.u8x16 = c
 //

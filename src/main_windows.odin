@@ -41,7 +41,7 @@ delete_registered_device :: proc(registered_device: ^Registed_Device) {
     clear(&registered_device.value_caps)
 }
 
-GAudioManager :: struct {
+Audio_Manager :: struct {
     #subtype immnotificationclient: coreaudio.IMMNotificationClient,
     selected_device:       ^coreaudio.IMMDevice,
     audio_client:          ^coreaudio.IAudioClient3,
@@ -52,7 +52,7 @@ GAudioManager :: struct {
     is_initialized:        b8,
 }
 
-release_AudioManager :: proc(manager: ^GAudioManager) {
+release_AudioManager :: proc(manager: ^Audio_Manager) {
     manager.is_initialized = false
     manager.audio_client->Stop()
     manager.audio_client->Release()
@@ -63,7 +63,7 @@ release_AudioManager :: proc(manager: ^GAudioManager) {
 
 
 try_get_default_audio_device :: proc(
-    notify_client: ^GAudioManager,
+    notify_client: ^Audio_Manager,
     device_enumerator: ^coreaudio.IMMDeviceEnumerator,
 ) -> bool {
     result := device_enumerator->GetDefaultAudioEndpoint(
@@ -106,8 +106,7 @@ try_get_default_audio_device :: proc(
     )
 
     // WARN: currently we only fill the defalut_period long buffer (in current machine are 10 ms),
-    // and singal thread means that if 1000ms/fps < defalut_period will cause glitch.
-    // NOTE:: left 1 ms for safety
+    //       and singal thread means that if 1000ms/fps < defalut_period will cause glitch.
     notify_client.buffer_size = u32(
         (f32(defalut_period * 100) / f32(time.Second)) * f32(mix_format.nSamplesPerSec),
     )
@@ -172,7 +171,6 @@ main :: proc() {
     // so need to use this function to convert.
     win.AdjustWindowRectExForDpi(&surface_rect, win.WS_OVERLAPPEDWINDOW, false, 0, dpiX)
 
-    render_context: graphic.render_context
     hwd := win.CreateWindowW(
         class_name,
         class_name,
@@ -184,10 +182,12 @@ main :: proc() {
         nil,
         nil,
         instance,
-        (rawptr)(&render_context),
+        nil,
     )
 
-    graphic.init_render_context(&render_context, hwd)
+
+    render_context: graphic.Render_Context
+    graphic.init_render_context(&render_context, hwd, get_asset_path, HEIGHT, WIDTH)
     defer graphic.destroy_render_context(&render_context)
     win.ShowWindow(hwd, win.SW_SHOW)
 
@@ -199,7 +199,7 @@ main :: proc() {
     }
 
     // TODO: Handle when user unplug device, on now we can't test it properly.
-    notify_client: GAudioManager = {
+    notify_client: Audio_Manager = {
         immnotificationclient = {
             vtable = &{
                 IUnKnownVtbl = {
@@ -221,12 +221,12 @@ main :: proc() {
                         return win.S_OK
                     },
                     AddRef = proc "system" (This: ^win.IUnknown) -> u32 {
-                        ref_self := (^GAudioManager)(This)
+                        ref_self := (^Audio_Manager)(This)
                         ref_self.ref_count += 1
                         return ref_self.ref_count
                     },
                     Release = proc "system" (This: ^win.IUnknown) -> u32 {
-                        ref_self := (^GAudioManager)(This)
+                        ref_self := (^Audio_Manager)(This)
                         ref_self.ref_count -= 1
                         if ref_self.ref_count == 0 {
                             // context = runtime.default_context()
@@ -412,7 +412,14 @@ main :: proc() {
             }
         }
 
-        graphic.render(&render_context)
+        {
+
+            render_time: time.Duration
+            defer util.debug_printf("render time: {}", render_time)
+            time.SCOPED_TICK_DURATION(&render_time)
+            graphic.render(&render_context)
+
+        }
 
 
         ms_elapsed := time.tick_since(start_time)
@@ -459,13 +466,13 @@ win_proc :: proc "stdcall" (
         runtime.print_string("[WARN]: Controller Input came in through a non-dispatch message\n")
         fallthrough
     // case win.WM_PAINT:
-        // render_context := (^graphic.render_context)(
-        //     (uintptr)(win.GetWindowLongPtrW(hwnd, win.GWLP_USERDATA)),
-        // )
-        // context = runtime.default_context()
-        //
-        // graphic.render(render_context)
-        // fallthrough
+    // render_context := (^graphic.render_context)(
+    //     (uintptr)(win.GetWindowLongPtrW(hwnd, win.GWLP_USERDATA)),
+    // )
+    // context = runtime.default_context()
+    //
+    // graphic.render(render_context)
+    // fallthrough
     case:
         result = win.DefWindowProcW(hwnd, msg, wparam, lparam)
     }

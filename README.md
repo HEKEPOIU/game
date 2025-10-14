@@ -16,6 +16,10 @@ basically Microsoft change they driver that make controller trigger merge into o
 I just can't solve this for new, when we support xinput it should be fix easily.
 
 
+## Conventions
+
+
+
 ## Some Odin Notes:
 
 ```odin
@@ -33,5 +37,16 @@ U : Using_Example
 
 // S.lpVtbl //error
 U.lpVtbl // ok
+```
+
+
+```odin
+// Matrix in odin are column major, that means is:
+m := matrix[2, 3]f32{
+    00, 10, 20,
+    01, 11, 21,
+}
+// internally will be :
+t := [3][2]f32{{00, 01}, {10, 11}, {20, 21}} // = matrix[2, 3]f32
 
 ```

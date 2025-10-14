@@ -7,4 +7,5 @@
 		{ "name": "libs", "path": "./src/libs/" },
 		{ "name": "thrid_party", "path": "./src/thrid_party/" }
 	],
+	"checker_args": "-debug -vet-shadowing -vet-semicolon",
 }
