@@ -1,5 +1,6 @@
 package input
 
+import "base:runtime"
 import "core:log"
 import "core:mem"
 import "core:strconv"
@@ -137,15 +138,16 @@ read_SDL_database :: proc(
     // because i don't want pack the SDL_GameControllerDB.txt on shipping.
     // but it will increasing the size of the binary, i think it's not a big deal or now.
     // if someday we care about it, we can parse the file and compress it.
-    ensure(ODIN_DEBUG, "You should not use this in ship build!!!")
+    #assert(ODIN_DEBUG, "You should not use this in ship build!!!")
     data := #load("./gamecontrollerdb.txt", string)
 
     context.allocator = context.temp_allocator
+    //WARN: This buildin function only work for default temp allocator
+    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD(ignore = allocator == context.temp_allocator)
     line_count := util.count_bytes(transmute([]byte)data, '\n')
 
 
     line_arr := util.split_by_char(data, '\n') or_return
-    defer free_all(context.temp_allocator)
     line_arr = line_arr[3:]
 
 
