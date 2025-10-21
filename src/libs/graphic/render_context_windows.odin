@@ -52,6 +52,8 @@ Render_Context :: struct {
     srv_heap:            ^d3d12.IDescriptorHeap,
     command_allocator:   ^d3d12.ICommandAllocator,
     command_list:        ^d3d12.IGraphicsCommandList,
+    bundle_allocator:    ^d3d12.ICommandAllocator,
+    bundle:              ^d3d12.IGraphicsCommandList,
     fence:               ^d3d12.IFence,
     root_signature:      ^d3d12.IRootSignature,
     pipeline_state:      ^d3d12.IPipelineState,
@@ -266,6 +268,14 @@ load_pipeline :: proc(using ctx: ^Render_Context, hwd: win.HWND, height: u32, wi
             .DIRECT,
             d3d12.ICommandAllocator_UUID,
             (^rawptr)(&command_allocator),
+        ),
+    )
+
+    ensure_success(
+        device->CreateCommandAllocator(
+            .BUNDLE,
+            d3d12.ICommandAllocator_UUID,
+            (^rawptr)(&bundle_allocator),
         ),
     )
 }
@@ -557,6 +567,24 @@ load_assets :: proc(using ctx: ^Render_Context) {
     command_lists := []^d3d12.ICommandList{command_list}
     command_queue->ExecuteCommandLists(u32(len(command_lists)), raw_data(command_lists))
 
+    {
+        ensure_success(
+            device->CreateCommandList(
+                0,
+                .BUNDLE,
+                bundle_allocator,
+                pipeline_state,
+                d3d12.IGraphicsCommandList_UUID,
+                (^rawptr)(&bundle),
+            ),
+        )
+
+        bundle->IASetPrimitiveTopology(.TRIANGLELIST)
+        bundle->IASetVertexBuffers(0, 1, &vertex_buffer_view)
+        bundle->DrawInstanced(3, 1, 0, 0)
+        ensure_success(bundle->Close())
+    }
+
     {     // Create Synchronization objects
         ensure_success(device->CreateFence(0, {}, d3d12.IFence_UUID, (^rawptr)(&fence)))
 
@@ -582,14 +610,15 @@ populate_command_list :: proc(using ctx: ^Render_Context) {
     ensure_success(command_allocator->Reset())
     ensure_success(command_list->Reset(command_allocator, pipeline_state))
 
-    command_list->SetGraphicsRootSignature(root_signature)
 
     heaps := []^d3d12.IDescriptorHeap{srv_heap}
+    // must match the calling command list descriptor heap
     command_list->SetDescriptorHeaps(u32(len(heaps)), raw_data(heaps))
-
+    command_list->SetGraphicsRootSignature(root_signature)
     handle: d3d12.GPU_DESCRIPTOR_HANDLE
     srv_heap->GetGPUDescriptorHandleForHeapStart(&handle)
     command_list->SetGraphicsRootDescriptorTable(0, handle)
+
     command_list->RSSetViewports(1, &viewport)
     command_list->RSSetScissorRects(1, &scissor_rect)
 
@@ -606,9 +635,7 @@ populate_command_list :: proc(using ctx: ^Render_Context) {
     command_list->ClearRenderTargetView(rtv_handle, &clear_Color, 0, nil)
 
     command_list->OMSetRenderTargets(1, &rtv_handle, false, nil)
-    command_list->IASetPrimitiveTopology(.TRIANGLELIST)
-    command_list->IASetVertexBuffers(0, 1, &vertex_buffer_view)
-    command_list->DrawInstanced(3, 1, 0, 0)
+    command_list->ExecuteBundle(bundle)
 
     barrier_to_present := transition(render_targets[frame_index], {.RENDER_TARGET}, {})
     command_list->ResourceBarrier(1, &barrier_to_present)
@@ -647,6 +674,8 @@ destroy_render_context :: proc(using ctx: ^Render_Context) {
     fence->Release()
     command_list->Release()
     command_allocator->Release()
+    bundle->Release()
+    bundle_allocator->Release()
     for f: u32; f < FRAME_COUNT; f += 1 {
         render_targets[f]->Release()
     }
