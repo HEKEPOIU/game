@@ -6,10 +6,22 @@ import "vendor:directx/d3d12"
 import "vendor:directx/dxgi"
 
 
+offset_desc_handle :: proc{
+    offset_desc_handle_cpu,
+    offset_desc_handle_gpu,
+}
+
 @(private)
-offset_desc_handle :: proc(base: ^d3d12.CPU_DESCRIPTOR_HANDLE, offset: i32, increment_size: u32) {
+offset_desc_handle_cpu :: proc(base: ^d3d12.CPU_DESCRIPTOR_HANDLE, offset: i32, increment_size: u32) {
     base^ = d3d12.CPU_DESCRIPTOR_HANDLE {
         ptr = win.SIZE_T(i64(base.ptr) + i64(offset) * i64(increment_size)),
+    }
+}
+
+@(private)
+offset_desc_handle_gpu :: proc(base: ^d3d12.GPU_DESCRIPTOR_HANDLE, offset: i32, increment_size: u32) {
+    base^ = d3d12.GPU_DESCRIPTOR_HANDLE {
+        ptr = u64(i64(base.ptr) + i64(offset) * i64(increment_size)),
     }
 }
 

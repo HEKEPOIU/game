@@ -43,31 +43,35 @@ Render_Context :: struct {
     //       We need to check support range of windows version,
     //       and maybe need to follow Dx12Example case that use Factory4 to Support more windows version.
     // TODO: Move out this
-    get_asset:           Get_Asset_Func,
-    factory:             ^dxgi.IFactory6,
-    device:              ^d3d12.IDevice,
-    command_queue:       ^d3d12.ICommandQueue,
-    swap_chain:          ^dxgi.ISwapChain3,
-    rtv_heap:            ^d3d12.IDescriptorHeap,
-    srv_heap:            ^d3d12.IDescriptorHeap,
-    command_allocator:   ^d3d12.ICommandAllocator,
-    command_list:        ^d3d12.IGraphicsCommandList,
-    bundle_allocator:    ^d3d12.ICommandAllocator,
-    bundle:              ^d3d12.IGraphicsCommandList,
-    fence:               ^d3d12.IFence,
-    root_signature:      ^d3d12.IRootSignature,
-    pipeline_state:      ^d3d12.IPipelineState,
-    vertex_buffer:       ^d3d12.IResource,
-    vertex_buffer_view:  d3d12.VERTEX_BUFFER_VIEW,
-    viewport:            d3d12.VIEWPORT,
-    scissor_rect:        d3d12.RECT,
-    render_targets:      [FRAME_COUNT]^d3d12.IResource,
-    texture:             ^d3d12.IResource,
-    fence_value:         u64,
-    fence_event:         win.HANDLE,
-    frame_index:         u32,
-    rtv_descriptor_size: win.UINT,
-    aspect_ratio:        f32,
+    get_asset:               Get_Asset_Func,
+    factory:                 ^dxgi.IFactory6,
+    device:                  ^d3d12.IDevice,
+    command_queue:           ^d3d12.ICommandQueue,
+    swap_chain:              ^dxgi.ISwapChain3,
+    rtv_heap:                ^d3d12.IDescriptorHeap,
+    srv_cbv_heap:            ^d3d12.IDescriptorHeap,
+    command_allocator:       ^d3d12.ICommandAllocator,
+    command_list:            ^d3d12.IGraphicsCommandList,
+    bundle_allocator:        ^d3d12.ICommandAllocator,
+    bundle:                  ^d3d12.IGraphicsCommandList,
+    fence:                   ^d3d12.IFence,
+    root_signature:          ^d3d12.IRootSignature,
+    pipeline_state:          ^d3d12.IPipelineState,
+    vertex_buffer:           ^d3d12.IResource,
+    constant_buffer:         ^d3d12.IResource,
+    cbv_data_begin:          ^byte,
+    cbv_data:                Scene_Constant_Buffer,
+    vertex_buffer_view:      d3d12.VERTEX_BUFFER_VIEW,
+    viewport:                d3d12.VIEWPORT,
+    scissor_rect:            d3d12.RECT,
+    render_targets:          [FRAME_COUNT]^d3d12.IResource,
+    texture:                 ^d3d12.IResource,
+    fence_value:             u64,
+    fence_event:             win.HANDLE,
+    frame_index:             u32,
+    rtv_descriptor_size:     win.UINT,
+    srv_cbv_descriptor_size: win.UINT,
+    aspect_ratio:            f32,
 }
 
 Get_Asset_Func :: proc(
@@ -230,8 +234,10 @@ load_pipeline :: proc(using ctx: ^Render_Context, hwd: win.HWND, height: u32, wi
                 (^rawptr)(&rtv_heap),
             ),
         )
+        rtv_descriptor_size = device->GetDescriptorHandleIncrementSize(.RTV)
+
         srv_heap_desc := d3d12.DESCRIPTOR_HEAP_DESC {
-            NumDescriptors = 1,
+            NumDescriptors = 2,
             Type           = .CBV_SRV_UAV,
             Flags          = {.SHADER_VISIBLE},
         }
@@ -240,12 +246,11 @@ load_pipeline :: proc(using ctx: ^Render_Context, hwd: win.HWND, height: u32, wi
             device->CreateDescriptorHeap(
                 &srv_heap_desc,
                 d3d12.IDescriptorHeap_UUID,
-                (^rawptr)(&srv_heap),
+                (^rawptr)(&srv_cbv_heap),
             ),
         )
+        srv_cbv_descriptor_size = device->GetDescriptorHandleIncrementSize(.CBV_SRV_UAV)
 
-
-        rtv_descriptor_size = device->GetDescriptorHandleIncrementSize(.RTV)
     }
     {
         rtv_handle: d3d12.CPU_DESCRIPTOR_HANDLE
@@ -295,8 +300,14 @@ load_assets :: proc(using ctx: ^Render_Context) {
             feature_data = d3d12.FEATURE_DATA_ROOT_SIGNATURE{._1_0}
         }
 
-        ranges := [1]d3d12.DESCRIPTOR_RANGE1{get_descriptor_range(.SRV, 1, 0, 0, {.DATA_STATIC})}
-        root_parameters := [1]d3d12.ROOT_PARAMETER1{get_descriptor_table(1, &ranges[0], .PIXEL)}
+        ranges := [2]d3d12.DESCRIPTOR_RANGE1 {
+            get_descriptor_range(.SRV, 1, 0, 0, {.DATA_STATIC}),
+            get_descriptor_range(.CBV, 1, 0, 0, {.DATA_STATIC}),
+        }
+        root_parameters := [2]d3d12.ROOT_PARAMETER1 {
+            get_descriptor_table(1, &ranges[0], .PIXEL),
+            get_descriptor_table(1, &ranges[1], .VERTEX),
+        }
 
         sampler := d3d12.STATIC_SAMPLER_DESC {
             Filter           = .MIN_MAG_MIP_POINT,
@@ -315,11 +326,17 @@ load_assets :: proc(using ctx: ^Render_Context) {
         }
 
         root_signature_desc := get_root_signature_1_1(
-            u32(len(root_parameters)),
-            &root_parameters[0],
-            1,
-            &sampler,
-            {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT},
+        u32(len(root_parameters)),
+        &root_parameters[0],
+        1,
+        &sampler,
+        {
+            .ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT,
+            .DENY_DOMAIN_SHADER_ROOT_ACCESS,
+            .DENY_GEOMETRY_SHADER_ROOT_ACCESS,
+            .DENY_HULL_SHADER_ROOT_ACCESS,
+            // .DENY_PIXEL_SHADER_ROOT_ACCESS,
+        },
         )
 
         signature: ^d3d12.IBlob
@@ -354,7 +371,7 @@ load_assets :: proc(using ctx: ^Render_Context) {
         when ODIN_DEBUG {
             compile_flags = {.DEBUG, .SKIP_OPTIMIZATION}
         }
-        shader_path, err := get_asset("texture_triangle.hlsl", context.temp_allocator)
+        shader_path, err := get_asset("texture_constant_buffer.hlsl", context.temp_allocator)
         ensure(err == .None, "Failed to get shader")
         p := win.utf8_to_utf16_alloc(shader_path)
         ensure_success(
@@ -442,7 +459,7 @@ load_assets :: proc(using ctx: ^Render_Context) {
             0,
             .DIRECT,
             command_allocator,
-            nil,
+            pipeline_state,
             d3d12.IGraphicsCommandList_UUID,
             (^rawptr)(&command_list),
         ),
@@ -481,6 +498,36 @@ load_assets :: proc(using ctx: ^Render_Context) {
             StrideInBytes  = size_of(Vertex),
             SizeInBytes    = u32(vertex_buffer_size),
         }
+    }
+
+    {     // Create Constant Buffer
+        cb_size: u64 = size_of(Scene_Constant_Buffer)
+
+        upload_heap_properties := get_heap_properties(.UPLOAD)
+        resource_buffer_desc := get_resource_buffer_desc(cb_size)
+        ensure_success(
+            device->CreateCommittedResource(
+                &upload_heap_properties,
+                {},
+                &resource_buffer_desc,
+                d3d12.RESOURCE_STATE_GENERIC_READ,
+                nil,
+                d3d12.IResource_UUID,
+                (^rawptr)(&constant_buffer),
+            ),
+        )
+        cbv_desc := d3d12.CONSTANT_BUFFER_VIEW_DESC {
+            BufferLocation = constant_buffer->GetGPUVirtualAddress(),
+            SizeInBytes    = u32(cb_size),
+        }
+        handle: d3d12.CPU_DESCRIPTOR_HANDLE
+        srv_cbv_heap->GetCPUDescriptorHandleForHeapStart(&handle)
+        offset_desc_handle(&handle, 1, srv_cbv_descriptor_size)
+        device->CreateConstantBufferView(&cbv_desc, handle)
+
+        read_range := d3d12.RANGE{}
+        ensure_success(constant_buffer->Map(0, &read_range, (^rawptr)(&cbv_data_begin)))
+        mem.copy(cbv_data_begin, &cbv_data, size_of(Scene_Constant_Buffer))
 
     }
 
@@ -559,7 +606,7 @@ load_assets :: proc(using ctx: ^Render_Context) {
         }
 
         heap_handle: d3d12.CPU_DESCRIPTOR_HANDLE
-        srv_heap->GetCPUDescriptorHandleForHeapStart(&heap_handle)
+        srv_cbv_heap->GetCPUDescriptorHandleForHeapStart(&heap_handle)
         device->CreateShaderResourceView(texture, &srv_desc, heap_handle)
     }
 
@@ -578,6 +625,24 @@ load_assets :: proc(using ctx: ^Render_Context) {
                 (^rawptr)(&bundle),
             ),
         )
+        bundle->SetGraphicsRootSignature(root_signature)
+        heaps := []^d3d12.IDescriptorHeap{srv_cbv_heap}
+        // must match the calling command list descriptor heap
+        bundle->SetDescriptorHeaps(u32(len(heaps)), raw_data(heaps))
+
+        {     // srv set
+            handle: d3d12.GPU_DESCRIPTOR_HANDLE
+            srv_cbv_heap->GetGPUDescriptorHandleForHeapStart(&handle)
+            bundle->SetGraphicsRootDescriptorTable(0, handle)
+        }
+
+        {     // cbv set
+            handle: d3d12.GPU_DESCRIPTOR_HANDLE
+            srv_cbv_heap->GetGPUDescriptorHandleForHeapStart(&handle)
+            offset_desc_handle(&handle, 1, srv_cbv_descriptor_size)
+            bundle->SetGraphicsRootDescriptorTable(1, handle)
+        }
+
 
         bundle->IASetPrimitiveTopology(.TRIANGLELIST)
         bundle->IASetVertexBuffers(0, 1, &vertex_buffer_view)
@@ -611,13 +676,23 @@ populate_command_list :: proc(using ctx: ^Render_Context) {
     ensure_success(command_list->Reset(command_allocator, pipeline_state))
 
 
-    heaps := []^d3d12.IDescriptorHeap{srv_heap}
+    command_list->SetGraphicsRootSignature(root_signature)
+    heaps := []^d3d12.IDescriptorHeap{srv_cbv_heap}
     // must match the calling command list descriptor heap
     command_list->SetDescriptorHeaps(u32(len(heaps)), raw_data(heaps))
-    command_list->SetGraphicsRootSignature(root_signature)
-    handle: d3d12.GPU_DESCRIPTOR_HANDLE
-    srv_heap->GetGPUDescriptorHandleForHeapStart(&handle)
-    command_list->SetGraphicsRootDescriptorTable(0, handle)
+
+    {     // srv set
+        handle: d3d12.GPU_DESCRIPTOR_HANDLE
+        srv_cbv_heap->GetGPUDescriptorHandleForHeapStart(&handle)
+        command_list->SetGraphicsRootDescriptorTable(0, handle)
+    }
+
+    {     // cbv set
+        handle: d3d12.GPU_DESCRIPTOR_HANDLE
+        srv_cbv_heap->GetGPUDescriptorHandleForHeapStart(&handle)
+        offset_desc_handle(&handle, 1, srv_cbv_descriptor_size)
+        command_list->SetGraphicsRootDescriptorTable(1, handle)
+    }
 
     command_list->RSSetViewports(1, &viewport)
     command_list->RSSetScissorRects(1, &scissor_rect)
@@ -660,6 +735,17 @@ render :: proc(using ctx: ^Render_Context) {
     )
 }
 
+update :: proc(using ctx: ^Render_Context) {
+    translation_speed: f32 = 0.005
+    offset_bounds: f32 = 1.25
+
+    cbv_data.offset.x += translation_speed
+    if (cbv_data.offset.x > offset_bounds) {
+        cbv_data.offset.x = -offset_bounds
+    }
+    mem.copy(cbv_data_begin, &cbv_data, size_of(Scene_Constant_Buffer))
+}
+
 destroy_render_context :: proc(using ctx: ^Render_Context) {
     wait_for_previous_frame(
         swap_chain,
@@ -674,6 +760,7 @@ destroy_render_context :: proc(using ctx: ^Render_Context) {
     fence->Release()
     command_list->Release()
     command_allocator->Release()
+    constant_buffer->Release()
     bundle->Release()
     bundle_allocator->Release()
     for f: u32; f < FRAME_COUNT; f += 1 {
@@ -682,7 +769,7 @@ destroy_render_context :: proc(using ctx: ^Render_Context) {
     texture->Release()
     pipeline_state->Release()
     root_signature->Release()
-    srv_heap->Release()
+    srv_cbv_heap->Release()
     rtv_heap->Release()
     swap_chain->Release()
     command_queue->Release()

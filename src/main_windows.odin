@@ -417,6 +417,7 @@ main :: proc() {
             render_time: time.Duration
             defer util.debug_printf("render time: {}", render_time)
             time.SCOPED_TICK_DURATION(&render_time)
+            graphic.update(&render_context)
             graphic.render(&render_context)
 
         }
