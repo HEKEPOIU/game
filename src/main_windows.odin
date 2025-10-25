@@ -16,8 +16,9 @@ import util "libs:utilities"
 import "thrid_party:coreaudio"
 
 running := true
-WIDTH :: 1280
-HEIGHT :: 720
+INIT_WINDOW_WIDTH :: 1280
+INIT_WINDOW_HEIGHT :: 720
+global_context := runtime.default_context()
 
 Registed_Device :: struct {
     is_initialized:   b8,
@@ -139,8 +140,10 @@ main :: proc() {
         context.logger = log.create_console_logger(
             opt = {.Level, .Terminal_Color, .Short_File_Path, .Procedure, .Line},
         )
+
         defer log.destroy_console_logger(context.logger)
     }
+    global_context = context
 
     // We Use temp allocator for frame lifetime allocator
 
@@ -165,29 +168,41 @@ main :: proc() {
     hMon := win.MonitorFromPoint({0, 0}, win.Monitor_From_Flags.MONITOR_DEFAULTTOPRIMARY)
     dpiX, dpiY: win.UINT = 96, 96
     win.GetDpiForMonitor(hMon, win.MONITOR_DPI_TYPE.MDT_EFFECTIVE_DPI, &dpiX, &dpiY)
-    surface_rect := win.RECT{0, 0, WIDTH, HEIGHT}
+    screen_width := win.GetSystemMetrics(win.SM_CXSCREEN)
+    screen_height := win.GetSystemMetrics(win.SM_CYSCREEN)
+    surface_rect := win.RECT{0, 0, INIT_WINDOW_WIDTH, INIT_WINDOW_HEIGHT}
     // Convert rect size to actual window size, based on dpi
     // the window size are include the border and title bar,
     // so need to use this function to convert.
     win.AdjustWindowRectExForDpi(&surface_rect, win.WS_OVERLAPPEDWINDOW, false, 0, dpiX)
 
+    window_width := surface_rect.right - surface_rect.left
+    window_height := surface_rect.bottom - surface_rect.top
+
+
+    render_context: graphic.Render_Context
     hwd := win.CreateWindowW(
         class_name,
         class_name,
         win.WS_OVERLAPPEDWINDOW | win.WS_VISIBLE,
-        win.CW_USEDEFAULT,
-        win.CW_USEDEFAULT,
-        surface_rect.right - surface_rect.left,
-        surface_rect.bottom - surface_rect.top,
+        max((screen_width - window_width) / 2, 0),
+        max((screen_height - window_height) / 2, 0),
+        window_width,
+        window_height,
         nil,
         nil,
         instance,
-        nil,
+        rawptr(&render_context),
     )
 
 
-    render_context: graphic.Render_Context
-    graphic.init_render_context(&render_context, hwd, get_asset_path, HEIGHT, WIDTH)
+    graphic.init_render_context(
+        &render_context,
+        hwd,
+        get_asset_path,
+        INIT_WINDOW_HEIGHT,
+        INIT_WINDOW_WIDTH,
+    )
     defer graphic.destroy_render_context(&render_context)
     win.ShowWindow(hwd, win.SW_SHOW)
 
@@ -413,13 +428,11 @@ main :: proc() {
         }
 
         {
-
             render_time: time.Duration
-            defer util.debug_printf("render time: {}", render_time)
+            // defer util.debug_printf("render time: {}", render_time)
             time.SCOPED_TICK_DURATION(&render_time)
             graphic.update(&render_context)
             graphic.render(&render_context)
-
         }
 
 
@@ -446,34 +459,34 @@ win_proc :: proc "stdcall" (
     lparam: win.LPARAM,
 ) -> win.LRESULT {
     result: win.LRESULT = 0
+    context = global_context
     switch (msg) {
-    // case win.WM_CREATE:
-    // create_struct := (^win.CREATESTRUCTW)((uintptr)(lparam))
-    // win.SetWindowLongPtrW(
-    //     hwnd,
-    //     win.GWLP_USERDATA,
-    //     (win.LONG_PTR)((uintptr)(create_struct.lpCreateParams)),
-    // )
+    case win.WM_CREATE:
+        create_struct := (^win.CREATESTRUCTW)((uintptr)(lparam))
+        win.SetWindowLongPtrW(
+            hwnd,
+            win.GWLP_USERDATA,
+            (win.LONG_PTR)((uintptr)(create_struct.lpCreateParams)),
+        )
     case win.WM_DESTROY, win.WM_QUIT:
         //NOTE: Must be here, since window directed messages are not dispatched.
         running = false
     case win.WM_KEYDOWN, win.WM_KEYUP:
-        runtime.print_string("[Error]: Keyboard Input came in through a non-dispatch message\n")
-        runtime.trap()
+        panic("Keyboard Input came in through a non-dispatch message")
+    case win.WM_SIZE:
+        render_context := (^graphic.Render_Context)(
+            (uintptr)(win.GetWindowLongPtrW(hwnd, win.GWLP_USERDATA)),
+        )
+        width := win.LOWORD(lparam)
+        height := win.HIWORD(lparam)
+        graphic.resize(render_context, u32(width), u32(height))
+        log.infof("resize to {}x{}", width, height)
     case win.WM_INPUT_DEVICE_CHANGE:
         // WARN: When user plug in controller between exe start and windows actually open,
         //       it will cause message came in through a non-dispatch message
         //       currently I don't think we need to handle this problem, just ignore it.
-        runtime.print_string("[WARN]: Controller Input came in through a non-dispatch message\n")
+        log.warn("Controller Input came in through a non-dispatch message")
         fallthrough
-    // case win.WM_PAINT:
-    // render_context := (^graphic.render_context)(
-    //     (uintptr)(win.GetWindowLongPtrW(hwnd, win.GWLP_USERDATA)),
-    // )
-    // context = runtime.default_context()
-    //
-    // graphic.render(render_context)
-    // fallthrough
     case:
         result = win.DefWindowProcW(hwnd, msg, wparam, lparam)
     }
@@ -538,7 +551,6 @@ update_input_state :: proc(
     controller_map: input.Controller_Map,
     registered_device: ^Registed_Device,
 ) {
-
     msg: win.MSG = ---
     //NOTE: GetMessage will block until a message is received.
     //      and PeekMessage just check if there is a message in the queue.

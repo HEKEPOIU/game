@@ -18,23 +18,28 @@ TEXTURE_PIXEL_SIZE :: 4
 
 TEXTURE_SIZE :: TEXTURE_WIDTH * TEXTURE_HEIGHT * TEXTURE_PIXEL_SIZE
 
-wait_for_previous_frame :: proc(
-    swapchain: ^dxgi.ISwapChain3,
-    command_queue: ^d3d12.ICommandQueue,
-    fence: ^d3d12.IFence,
-    fence_event: win.HANDLE,
-    fence_value: ^u64,
-    frame_index: ^u32,
-) {
 
-    temp_fence := fence_value^
-    ensure_success((command_queue->Signal(fence, temp_fence)))
-    fence_value^ += 1
-    if (fence->GetCompletedValue() < temp_fence) {
-        ensure_success((fence->SetEventOnCompletion(temp_fence, fence_event)))
+WaitForGpu :: proc(using ctx: ^Render_Context) {
+    ensure_success(command_queue->Signal(fence, fence_value[frame_index]))
+    ensure_success(fence->SetEventOnCompletion(fence_value[frame_index], fence_event))
+    win.WaitForSingleObject(fence_event, win.INFINITE)
+
+    fence_value[frame_index] += 1
+}
+
+move_to_next_frame :: proc(using ctx: ^Render_Context) {
+    current_fence_value := fence_value[frame_index]
+    // The Signal method not increment the fence immediately,
+    // it append a signal operation to the end of command queue, after all the command in the queue is executed.
+    ensure_success(command_queue->Signal(fence, current_fence_value))
+
+    frame_index = swap_chain->GetCurrentBackBufferIndex()
+    if fence->GetCompletedValue() < fence_value[frame_index] {
+        ensure_success(fence->SetEventOnCompletion(fence_value[frame_index], fence_event))
         win.WaitForSingleObject(fence_event, win.INFINITE)
     }
-    frame_index^ = swapchain->GetCurrentBackBufferIndex()
+
+    fence_value[frame_index] = current_fence_value + 1
 }
 
 //TODO: Pass own temp allocator and allocator to that it manage by render system
@@ -50,7 +55,7 @@ Render_Context :: struct {
     swap_chain:              ^dxgi.ISwapChain3,
     rtv_heap:                ^d3d12.IDescriptorHeap,
     srv_cbv_heap:            ^d3d12.IDescriptorHeap,
-    command_allocator:       ^d3d12.ICommandAllocator,
+    command_allocator:       [FRAME_COUNT]^d3d12.ICommandAllocator,
     command_list:            ^d3d12.IGraphicsCommandList,
     bundle_allocator:        ^d3d12.ICommandAllocator,
     bundle:                  ^d3d12.IGraphicsCommandList,
@@ -62,16 +67,17 @@ Render_Context :: struct {
     cbv_data_begin:          ^byte,
     cbv_data:                Scene_Constant_Buffer,
     vertex_buffer_view:      d3d12.VERTEX_BUFFER_VIEW,
-    viewport:                d3d12.VIEWPORT,
-    scissor_rect:            d3d12.RECT,
     render_targets:          [FRAME_COUNT]^d3d12.IResource,
     texture:                 ^d3d12.IResource,
-    fence_value:             u64,
+    fence_value:             [FRAME_COUNT]u64,
     fence_event:             win.HANDLE,
     frame_index:             u32,
     rtv_descriptor_size:     win.UINT,
     srv_cbv_descriptor_size: win.UINT,
     aspect_ratio:            f32,
+    current_width:           u32,
+    current_height:          u32,
+    is_initial:              b32,
 }
 
 Get_Asset_Func :: proc(
@@ -91,17 +97,10 @@ init_render_context :: proc(
     width: u32,
 ) {
     get_asset = get_asset_func
-    aspect_ratio = f32(width) / f32(height)
-    viewport = {
-        Width  = f32(width),
-        Height = f32(height),
-    }
-    scissor_rect = {
-        right  = i32(width),
-        bottom = i32(height),
-    }
+    update_window_size(ctx, width, height)
     load_pipeline(ctx, hwd, height, width)
     load_assets(ctx)
+    is_initial = true
 }
 
 load_pipeline :: proc(using ctx: ^Render_Context, hwd: win.HWND, height: u32, width: u32) {
@@ -114,7 +113,7 @@ load_pipeline :: proc(using ctx: ^Render_Context, hwd: win.HWND, height: u32, wi
             ) {
                 defer debug_controller->Release()
                 debug_controller->EnableDebugLayer()
-                debug_controller->SetEnableGPUBasedValidation(true)
+                // debug_controller->SetEnableGPUBasedValidation(true)
                 debug_controller->SetEnableSynchronizedCommandQueueValidation(true)
                 debug_controller->SetEnableAutoName(true)
                 dxgi_factory_flags = {.DEBUG}
@@ -186,6 +185,21 @@ load_pipeline :: proc(using ctx: ^Render_Context, hwd: win.HWND, height: u32, wi
         "Failed to create command queue",
     )
     {
+
+        swap_chain_flags: dxgi.SWAP_CHAIN
+
+        {     // Check support tearing
+            support_tearing: b32 = false
+            factory->CheckFeatureSupport(
+                .PRESENT_ALLOW_TEARING,
+                &support_tearing,
+                size_of(support_tearing),
+            )
+            if support_tearing {
+                swap_chain_flags = {.ALLOW_TEARING}
+            }
+        }
+
         temp_swap_chain: ^dxgi.ISwapChain1
         swap_chain_desc := dxgi.SWAP_CHAIN_DESC1 {
             BufferCount = 2,
@@ -197,6 +211,8 @@ load_pipeline :: proc(using ctx: ^Render_Context, hwd: win.HWND, height: u32, wi
             // Based on docs, SampleDesc only useful for bit-block transfer (bitblt) model swap chains.
             // So we set it to default value from docs.
             SampleDesc = {Count = 1},
+            Scaling = .NONE,
+            Flags = swap_chain_flags,
         }
         ensure_success(
             factory->CreateSwapChainForHwnd(
@@ -252,29 +268,18 @@ load_pipeline :: proc(using ctx: ^Render_Context, hwd: win.HWND, height: u32, wi
         srv_cbv_descriptor_size = device->GetDescriptorHandleIncrementSize(.CBV_SRV_UAV)
 
     }
-    {
-        rtv_handle: d3d12.CPU_DESCRIPTOR_HANDLE
-        // On C++ binding, this use return value not out parameter
-        rtv_heap->GetCPUDescriptorHandleForHeapStart(&rtv_handle)
+    update_rtv_view(ctx, FRAME_COUNT)
 
-        for f: u32; f < FRAME_COUNT; f += 1 {
-            ensure_success(
-                swap_chain->GetBuffer(f, d3d12.IResource_UUID, (^rawptr)(&render_targets[f])),
-            )
-
-            device->CreateRenderTargetView(render_targets[f], nil, rtv_handle)
-            offset_desc_handle(&rtv_handle, 1, rtv_descriptor_size)
-        }
-
+    for f: u32; f < FRAME_COUNT; f += 1 {
+        ensure_success(
+            device->CreateCommandAllocator(
+                .DIRECT,
+                d3d12.ICommandAllocator_UUID,
+                (^rawptr)(&command_allocator[f]),
+            ),
+        )
     }
 
-    ensure_success(
-        device->CreateCommandAllocator(
-            .DIRECT,
-            d3d12.ICommandAllocator_UUID,
-            (^rawptr)(&command_allocator),
-        ),
-    )
 
     ensure_success(
         device->CreateCommandAllocator(
@@ -283,6 +288,58 @@ load_pipeline :: proc(using ctx: ^Render_Context, hwd: win.HWND, height: u32, wi
             (^rawptr)(&bundle_allocator),
         ),
     )
+}
+
+get_viewport :: proc(width: u32, height: u32) -> d3d12.VIEWPORT {
+    return {Width = f32(width), Height = f32(height)}
+}
+get_scissor_rect :: proc(width: u32, height: u32) -> d3d12.RECT {
+    return {right = i32(width), bottom = i32(height)}
+}
+
+update_window_size :: proc(using ctx: ^Render_Context, width: u32, height: u32) {
+    aspect_ratio = f32(width) / f32(height)
+    MIN_WINDOW_WIDTH :: 200
+    MIN_WINDOW_HEIGHT :: 200
+    current_width = max(width, MIN_WINDOW_WIDTH)
+    current_height = max(height, MIN_WINDOW_HEIGHT)
+}
+
+update_rtv_view :: proc(using ctx: ^Render_Context, frame_count: u32) {
+    rtv_handle: d3d12.CPU_DESCRIPTOR_HANDLE
+    // On C++ binding, this use return value not out parameter
+    rtv_heap->GetCPUDescriptorHandleForHeapStart(&rtv_handle)
+    for f: u32; f < frame_count; f += 1 {
+        ensure_success(
+            swap_chain->GetBuffer(f, d3d12.IResource_UUID, (^rawptr)(&render_targets[f])),
+        )
+        device->CreateRenderTargetView(render_targets[f], nil, rtv_handle)
+        offset_desc_handle(&rtv_handle, 1, rtv_descriptor_size)
+    }
+}
+
+resize :: proc(using ctx: ^Render_Context, width: u32, height: u32) {
+    if (width == current_width && height == current_height) do return
+    update_window_size(ctx, width, height)
+    if !is_initial do return
+    WaitForGpu(ctx)
+    for f: u32; f < FRAME_COUNT; f += 1 {
+        render_targets[f]->Release()
+        // fence_value[f] = fence_value[frame_index]
+    }
+    old_swapchain_desc := dxgi.SWAP_CHAIN_DESC{}
+    ensure_success(swap_chain->GetDesc(&old_swapchain_desc))
+    ensure_success(
+        swap_chain->ResizeBuffers(
+            FRAME_COUNT,
+            current_width,
+            current_height,
+            old_swapchain_desc.BufferDesc.Format,
+            old_swapchain_desc.Flags,
+        ),
+    )
+    frame_index = swap_chain->GetCurrentBackBufferIndex()
+    update_rtv_view(ctx, FRAME_COUNT)
 }
 
 
@@ -458,7 +515,7 @@ load_assets :: proc(using ctx: ^Render_Context) {
         device->CreateCommandList(
             0,
             .DIRECT,
-            command_allocator,
+            command_allocator[frame_index],
             pipeline_state,
             d3d12.IGraphicsCommandList_UUID,
             (^rawptr)(&command_list),
@@ -651,29 +708,29 @@ load_assets :: proc(using ctx: ^Render_Context) {
     }
 
     {     // Create Synchronization objects
-        ensure_success(device->CreateFence(0, {}, d3d12.IFence_UUID, (^rawptr)(&fence)))
+        ensure_success(
+            device->CreateFence(
+                fence_value[frame_index], // Initial value
+                {},
+                d3d12.IFence_UUID,
+                (^rawptr)(&fence),
+            ),
+        )
 
-        fence_value = 1
+        fence_value[frame_index] += 1
 
         fence_event = win.CreateEventW(nil, false, false, nil)
         if fence_event == nil {
             log.errorf("{}", win.HRESULT_FROM_WIN32(win.GetLastError()))
             ensure(false, "Failed to create fence event")
         }
-        wait_for_previous_frame(
-            swap_chain,
-            command_queue,
-            fence,
-            fence_event,
-            &fence_value,
-            &frame_index,
-        )
+        WaitForGpu(ctx)
     }
 }
 
 populate_command_list :: proc(using ctx: ^Render_Context) {
-    ensure_success(command_allocator->Reset())
-    ensure_success(command_list->Reset(command_allocator, pipeline_state))
+    ensure_success(command_allocator[frame_index]->Reset())
+    ensure_success(command_list->Reset(command_allocator[frame_index], pipeline_state))
 
 
     command_list->SetGraphicsRootSignature(root_signature)
@@ -694,6 +751,8 @@ populate_command_list :: proc(using ctx: ^Render_Context) {
         command_list->SetGraphicsRootDescriptorTable(1, handle)
     }
 
+    viewport := get_viewport(current_width, current_height)
+    scissor_rect := get_scissor_rect(current_width, current_height)
     command_list->RSSetViewports(1, &viewport)
     command_list->RSSetScissorRects(1, &scissor_rect)
 
@@ -723,16 +782,7 @@ render :: proc(using ctx: ^Render_Context) {
     command_queue->ExecuteCommandLists(u32(len(command_lists)), raw_data(command_lists))
 
     ensure_success(swap_chain->Present(0, {}))
-
-
-    wait_for_previous_frame(
-        swap_chain,
-        command_queue,
-        fence,
-        fence_event,
-        &fence_value,
-        &frame_index,
-    )
+    move_to_next_frame(ctx)
 }
 
 update :: proc(using ctx: ^Render_Context) {
@@ -747,24 +797,18 @@ update :: proc(using ctx: ^Render_Context) {
 }
 
 destroy_render_context :: proc(using ctx: ^Render_Context) {
-    wait_for_previous_frame(
-        swap_chain,
-        command_queue,
-        fence,
-        fence_event,
-        &fence_value,
-        &frame_index,
-    )
+    WaitForGpu(ctx)
     win.CloseHandle(fence_event)
     vertex_buffer->Release()
     fence->Release()
     command_list->Release()
-    command_allocator->Release()
     constant_buffer->Release()
     bundle->Release()
     bundle_allocator->Release()
     for f: u32; f < FRAME_COUNT; f += 1 {
+        command_allocator[f]->Release()
         render_targets[f]->Release()
+
     }
     texture->Release()
     pipeline_state->Release()
