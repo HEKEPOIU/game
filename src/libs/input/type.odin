@@ -34,6 +34,20 @@ Keyboard_Mouse_Keys :: struct {
     KEY_8:        Keyboard_Input_Set,
     KEY_9:        Keyboard_Input_Set,
 
+    // Move F1..F12 together, so that loop assign won't be break
+    F1:           Keyboard_Input_Set,
+    F2:           Keyboard_Input_Set,
+    F3:           Keyboard_Input_Set,
+    F4:           Keyboard_Input_Set,
+    F5:           Keyboard_Input_Set,
+    F6:           Keyboard_Input_Set,
+    F7:           Keyboard_Input_Set,
+    F8:           Keyboard_Input_Set,
+    F9:           Keyboard_Input_Set,
+    F10:          Keyboard_Input_Set,
+    F11:          Keyboard_Input_Set,
+    F12:          Keyboard_Input_Set,
+
     // Move A..Z together, so that loop assign won't be break
     A:            Keyboard_Input_Set,
     B:            Keyboard_Input_Set,
@@ -66,8 +80,10 @@ Keyboard_Mouse_Keys :: struct {
     SHIFT:        Keyboard_Input_Set,
     CONTROL:      Keyboard_Input_Set,
     ALT:          Keyboard_Input_Set,
+
     ESC:          Keyboard_Input_Set,
     TAB:          Keyboard_Input_Set,
+    ENTER:        Keyboard_Input_Set,
     MOUSE_LEFT:   Keyboard_Input_Set,
     MOUSE_RIGHT:  Keyboard_Input_Set,
     MOUSE_MIDDLE: Keyboard_Input_Set,

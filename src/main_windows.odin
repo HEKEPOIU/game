@@ -18,7 +18,9 @@ import "thrid_party:coreaudio"
 running := true
 INIT_WINDOW_WIDTH :: 1280
 INIT_WINDOW_HEIGHT :: 720
-global_context := runtime.default_context()
+global_context: runtime.Context
+cache_window_size: win.RECT
+
 
 Registed_Device :: struct {
     is_initialized:   b8,
@@ -62,6 +64,46 @@ release_AudioManager :: proc(manager: ^Audio_Manager) {
     win.CloseHandle(manager.buffer_ready_handle)
 }
 
+toggle_fullscreen :: proc(hwnd: win.HWND) {
+    @(static) is_fullscreen := false
+
+    is_fullscreen = !is_fullscreen
+
+    if is_fullscreen {
+        win.GetWindowRect(hwnd, &cache_window_size)
+        // unset all window style = 0
+        // win.WS_OVERLAPPEDWINDOW &
+        // ~(win.WS_CAPTION |
+        //         win.WS_SYSMENU |
+        //         win.WS_THICKFRAME |
+        //         win.WS_MINIMIZEBOX |
+        //         win.WS_MAXIMIZEBOX)
+        window_style: win.UINT = 0
+        win.SetWindowLongW(hwnd, win.GWL_STYLE, i32(window_style))
+        style_flags := u32(
+            win.SWP_FRAMECHANGED |
+            win.SWP_NOACTIVATE |
+            win.SWP_NOMOVE |
+            win.SWP_NOSIZE |
+            win.SWP_NOZORDER,
+        )
+        win.SetWindowPos(hwnd, win.HWND_TOP, 0, 0, 0, 0, style_flags)
+        win.ShowWindow(hwnd, win.SW_MAXIMIZE)
+    } else {
+        win.SetWindowLongW(hwnd, win.GWL_STYLE, i32(win.WS_OVERLAPPEDWINDOW))
+        win.SetWindowPos(
+            hwnd,
+            win.HWND_NOTOPMOST,
+            cache_window_size.left,
+            cache_window_size.top,
+            cache_window_size.right - cache_window_size.left,
+            cache_window_size.bottom - cache_window_size.top,
+            win.SWP_FRAMECHANGED | win.SWP_NOACTIVATE,
+        )
+        win.ShowWindow(hwnd, win.SW_NORMAL)
+    }
+
+}
 
 try_get_default_audio_device :: proc(
     notify_client: ^Audio_Manager,
@@ -163,7 +205,7 @@ main :: proc() {
 
     //TODO: Need to handle DPI change case, there is an WM_DPICHANGED message can be handle
     win.SetProcessDPIAware()
-    win.SetProcessDpiAwarenessContext(win.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE)
+    win.SetProcessDpiAwarenessContext(win.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
 
     hMon := win.MonitorFromPoint({0, 0}, win.Monitor_From_Flags.MONITOR_DEFAULTTOPRIMARY)
     dpiX, dpiY: win.UINT = 96, 96
@@ -204,92 +246,13 @@ main :: proc() {
         INIT_WINDOW_WIDTH,
     )
     defer graphic.destroy_render_context(&render_context)
-    win.ShowWindow(hwd, win.SW_SHOW)
+    win.ShowWindow(hwd, win.SW_NORMAL)
 
     ensure(hwd != nil, "Window creation Failed")
 
     {
         result := win.CoInitializeEx(nil, .MULTITHREADED | .DISABLE_OLE1DDE)
         ensure(result == win.S_OK, "Failed to initialize COM")
-    }
-
-    // TODO: Handle when user unplug device, on now we can't test it properly.
-    notify_client: Audio_Manager = {
-        immnotificationclient = {
-            vtable = &{
-                IUnKnownVtbl = {
-                    QueryInterface = proc "system" (
-                        This: ^win.IUnknown,
-                        riid: win.REFIID,
-                        ppvObject: ^rawptr,
-                    ) -> win.HRESULT {
-                        if riid == win.IUnknown_UUID {
-                            This->AddRef()
-                            ppvObject^ = (^win.IUnknown)(This)
-                        } else if riid == coreaudio.IMMNotificationClient_UUID {
-                            This->AddRef()
-                            ppvObject^ = (^coreaudio.IMMNotificationClient)(This)
-                        } else {
-                            ppvObject^ = nil
-                            return win.HRESULT_FROM_WIN32(win.E_NOINTERFACE)
-                        }
-                        return win.S_OK
-                    },
-                    AddRef = proc "system" (This: ^win.IUnknown) -> u32 {
-                        ref_self := (^Audio_Manager)(This)
-                        ref_self.ref_count += 1
-                        return ref_self.ref_count
-                    },
-                    Release = proc "system" (This: ^win.IUnknown) -> u32 {
-                        ref_self := (^Audio_Manager)(This)
-                        ref_self.ref_count -= 1
-                        if ref_self.ref_count == 0 {
-                            // context = runtime.default_context()
-                            // free(This) // Is it need?
-                            return 0
-                        }
-                        return ref_self.ref_count
-                    },
-                },
-                OnDeviceStateChanged = proc "system" (
-                    This: ^coreaudio.IMMNotificationClient,
-                    pwstrDeviceId: win.LPCWSTR,
-                    dwnewState: coreaudio.Device_State_flags,
-                ) -> win.HRESULT {
-                    context = runtime.default_context()
-                    log.info("OnDeviceStateChanged")
-                    return win.S_OK
-                },
-                OnDeviceAdded = proc "system" (
-                    This: ^coreaudio.IMMNotificationClient,
-                    pwstrDeviceId: win.LPCWSTR,
-                ) -> win.HRESULT {
-                    return win.S_OK
-                },
-                OnDeviceRemoved = proc "system" (
-                    This: ^coreaudio.IMMNotificationClient,
-                    pwstrDefaultDeviceId: ^win.LPCWSTR,
-                ) -> win.HRESULT {
-                    return win.S_OK
-                },
-                OnDefaultDeviceChanged = proc "system" (
-                    This: ^coreaudio.IMMNotificationClient,
-                    flow: coreaudio.EDataFlow,
-                    role: coreaudio.ERole,
-                    pwstrDefaultDeviceId: ^win.LPWSTR,
-                ) -> win.HRESULT {
-                    // TODO: Test existing game will not change output when default device changed.
-                    return win.S_OK
-                },
-                OnPropertyValueChanged = proc "system" (
-                    This: ^coreaudio.IMMNotificationClient,
-                    pwstrDeviceId: ^win.LPWSTR,
-                    key: win.PROPERTYKEY,
-                ) -> win.HRESULT {
-                    return win.S_OK
-                },
-            },
-        },
     }
 
 
@@ -386,9 +349,10 @@ main :: proc() {
 
         update_input_state(new_input_state, controller_map, &registed_device)
 
-        if new_input_state.mouse_state.wheel_delta != 0 {
-            util.debug_printf("mouse_input: %v", new_input_state.mouse_state.wheel_delta)
-        }
+
+        // if new_input_state.mouse_state.wheel_delta != 0 {
+        //     util.debug_printf("mouse_input: %v", new_input_state.mouse_state.wheel_delta)
+        // }
         // for i in input.Controller_Known_Value.DPad_Up ..= input.Controller_Known_Value.Paddle_4 {
         //     v := input.get_controller_varient(&new_input_state.controller_state, i).digital^
         //     pv := false
@@ -425,6 +389,12 @@ main :: proc() {
                 //     total_time += 0.05
                 // }
             }
+        }
+
+        if input.contain_state(new_input_state.kbm_key.ENTER, {.Alt, .Down}) ||
+           input.is_down(new_input_state.kbm_key.F11) {
+            toggle_fullscreen(hwd)
+            continue
         }
 
         {
@@ -482,7 +452,7 @@ win_proc :: proc "stdcall" (
         graphic.resize(render_context, u32(width), u32(height))
         log.infof("resize to {}x{}", width, height)
     case win.WM_INPUT_DEVICE_CHANGE:
-        // WARN: When user plug in controller between exe start and windows actually open,
+        // WARN: When user plug the controller between applications start and windows actually open,
         //       it will cause message came in through a non-dispatch message
         //       currently I don't think we need to handle this problem, just ignore it.
         log.warn("Controller Input came in through a non-dispatch message")
@@ -508,6 +478,16 @@ update_keyboard_input :: proc(
         keyboard_state.TAB = input.make_keyboard_input(is_down, was_down, shortcut_set)
         return
     }
+    if vk_code == win.VK_RETURN {
+        keyboard_state.ENTER = input.make_keyboard_input(is_down, was_down, shortcut_set)
+        return
+    }
+    if (vk_code >= win.VK_F1) && (vk_code <= win.VK_F12) {
+        keyboard_state.data[offset_of(keyboard_state.F1) + uintptr(vk_code - win.VK_F1)] =
+            input.make_keyboard_input(is_down, was_down, shortcut_set)
+        return
+    }
+
     if (vk_code >= win.VK_0) && (vk_code <= win.VK_9) {
         keyboard_state.data[offset_of(keyboard_state.KEY_0) + uintptr(vk_code - win.VK_0)] =
             input.make_keyboard_input(is_down, was_down, shortcut_set)
@@ -1085,4 +1065,83 @@ get_usage_value :: proc(
         }
     }
     return
+}
+
+// TODO: Handle when user unplug device, on now we can't test it properly.
+notify_client: Audio_Manager = {
+    immnotificationclient = {
+        vtable = &{
+            IUnKnownVtbl = {
+                QueryInterface = proc "system" (
+                    This: ^win.IUnknown,
+                    riid: win.REFIID,
+                    ppvObject: ^rawptr,
+                ) -> win.HRESULT {
+                    if riid == win.IUnknown_UUID {
+                        This->AddRef()
+                        ppvObject^ = (^win.IUnknown)(This)
+                    } else if riid == coreaudio.IMMNotificationClient_UUID {
+                        This->AddRef()
+                        ppvObject^ = (^coreaudio.IMMNotificationClient)(This)
+                    } else {
+                        ppvObject^ = nil
+                        return win.HRESULT_FROM_WIN32(win.E_NOINTERFACE)
+                    }
+                    return win.S_OK
+                },
+                AddRef = proc "system" (This: ^win.IUnknown) -> u32 {
+                    ref_self := (^Audio_Manager)(This)
+                    ref_self.ref_count += 1
+                    return ref_self.ref_count
+                },
+                Release = proc "system" (This: ^win.IUnknown) -> u32 {
+                    ref_self := (^Audio_Manager)(This)
+                    ref_self.ref_count -= 1
+                    if ref_self.ref_count == 0 {
+                        // context = runtime.default_context()
+                        // free(This) // Is it need?
+                        return 0
+                    }
+                    return ref_self.ref_count
+                },
+            },
+            OnDeviceStateChanged = proc "system" (
+                This: ^coreaudio.IMMNotificationClient,
+                pwstrDeviceId: win.LPCWSTR,
+                dwnewState: coreaudio.Device_State_flags,
+            ) -> win.HRESULT {
+                context = runtime.default_context()
+                log.info("OnDeviceStateChanged")
+                return win.S_OK
+            },
+            OnDeviceAdded = proc "system" (
+                This: ^coreaudio.IMMNotificationClient,
+                pwstrDeviceId: win.LPCWSTR,
+            ) -> win.HRESULT {
+                return win.S_OK
+            },
+            OnDeviceRemoved = proc "system" (
+                This: ^coreaudio.IMMNotificationClient,
+                pwstrDefaultDeviceId: ^win.LPCWSTR,
+            ) -> win.HRESULT {
+                return win.S_OK
+            },
+            OnDefaultDeviceChanged = proc "system" (
+                This: ^coreaudio.IMMNotificationClient,
+                flow: coreaudio.EDataFlow,
+                role: coreaudio.ERole,
+                pwstrDefaultDeviceId: ^win.LPWSTR,
+            ) -> win.HRESULT {
+                // TODO: Test existing game will not change output when default device changed.
+                return win.S_OK
+            },
+            OnPropertyValueChanged = proc "system" (
+                This: ^coreaudio.IMMNotificationClient,
+                pwstrDeviceId: ^win.LPWSTR,
+                key: win.PROPERTYKEY,
+            ) -> win.HRESULT {
+                return win.S_OK
+            },
+        },
+    },
 }

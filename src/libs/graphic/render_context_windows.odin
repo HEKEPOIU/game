@@ -97,7 +97,7 @@ init_render_context :: proc(
     width: u32,
 ) {
     get_asset = get_asset_func
-    update_window_size(ctx, width, height)
+    // update_window_size(ctx, width, height)
     load_pipeline(ctx, hwd, height, width)
     load_assets(ctx)
     is_initial = true
@@ -320,12 +320,14 @@ update_rtv_view :: proc(using ctx: ^Render_Context, frame_count: u32) {
 
 resize :: proc(using ctx: ^Render_Context, width: u32, height: u32) {
     if (width == current_width && height == current_height) do return
+
     update_window_size(ctx, width, height)
+
     if !is_initial do return
     WaitForGpu(ctx)
     for f: u32; f < FRAME_COUNT; f += 1 {
         render_targets[f]->Release()
-        // fence_value[f] = fence_value[frame_index]
+        fence_value[f] = fence_value[frame_index]
     }
     old_swapchain_desc := dxgi.SWAP_CHAIN_DESC{}
     ensure_success(swap_chain->GetDesc(&old_swapchain_desc))
