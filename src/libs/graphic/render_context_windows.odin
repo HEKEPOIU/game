@@ -60,6 +60,11 @@ Render_Context :: struct {
     bundle_allocator:        ^d3d12.ICommandAllocator,
     bundle:                  ^d3d12.IGraphicsCommandList,
     fence:                   ^d3d12.IFence,
+    // Root signatures are limited to 64 DWORDs (2048-bits) [5]. Each root parameter has a cost that counts towards the root signature limit:
+    //
+    // 32-bit constants each costs 1 DWORD
+    // Inline descriptors each costs 2 DWORDs
+    // Descriptor tables each costs 1 DWORD
     root_signature:          ^d3d12.IRootSignature,
     pipeline_state:          ^d3d12.IPipelineState,
     vertex_buffer:           ^d3d12.IResource,
@@ -384,6 +389,7 @@ load_assets :: proc(using ctx: ^Render_Context) {
             ShaderVisibility = .PIXEL,
         }
 
+        // Static samplers do not use any space in the root signature and do not count against the size limit of the root signature.
         root_signature_desc := get_root_signature_1_1(
         u32(len(root_parameters)),
         &root_parameters[0],

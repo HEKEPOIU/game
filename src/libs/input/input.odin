@@ -39,39 +39,45 @@ is_up :: proc {
 
 
 is_down_digit :: #force_inline proc "contextless" (input: Digit_Input_Set) -> b8 {
-    return .Down in input
+    return is_down_keyboard(as_keyboard_input(input))
 }
 
-is_down_keyboard :: #force_inline proc "contextless" (input: Keyboard_Input_Set) -> b8 {
-    return .Down in input
+is_down_keyboard :: #force_inline proc "contextless" (
+    input: Keyboard_Input_Set,
+    state: Keyboard_Input_Set = {},
+) -> b8 {
+    return .Down in input && (input & Keyboard_Modifier_Mask) == state
 }
 
 
 is_up_digit :: #force_inline proc "contextless" (input: Digit_Input_Set) -> b8 {
-    return .Up in input
+    return is_up_keyboard(as_keyboard_input(input))
 }
 
-is_up_keyboard :: #force_inline proc "contextless" (input: Keyboard_Input_Set) -> b8 {
-    return .Up in input
+is_up_keyboard :: #force_inline proc "contextless" (
+    input: Keyboard_Input_Set,
+    state: Keyboard_Input_Set = {},
+) -> b8 {
+    return .Up in input && (input & Keyboard_Modifier_Mask) == state
 }
 
 
 is_hold_digit :: #force_inline proc "contextless" (input: Digit_Input_Set) -> b8 {
-    return .Hold in input
+    return is_hold_keyboard(as_keyboard_input(input))
 }
 
-is_hold_keyboard :: #force_inline proc "contextless" (input: Keyboard_Input_Set) -> b8 {
-    return .Hold in input
+is_hold_keyboard :: #force_inline proc "contextless" (
+    input: Keyboard_Input_Set,
+    state: Keyboard_Input_Set = {},
+) -> b8 {
+    return .Hold in input && (input & Keyboard_Modifier_Mask) == state
 }
 
 contain_state :: #force_inline proc "contextless" (
     input: Keyboard_Input_Set,
-    key: []Keyboard_Input,
+    key: Keyboard_Input_Set,
 ) -> b8 {
-    for i in key {
-        if i not_in input do return false
-    }
-    return true
+    return input >= key
 }
 
 make_input_1D_from_digit :: #force_inline proc "contextless" (
@@ -99,6 +105,12 @@ make_input_1D_from_keyboard :: #force_inline proc "contextless" (
 
 as_digit_input :: #force_inline proc "contextless" (input: Keyboard_Input_Set) -> Digit_Input_Set {
     return transmute(Digit_Input_Set)input
+}
+
+as_keyboard_input :: #force_inline proc "contextless" (
+    input: Digit_Input_Set,
+) -> Keyboard_Input_Set {
+    return transmute(Keyboard_Input_Set)input
 }
 
 make_digit_input :: proc "contextless" (

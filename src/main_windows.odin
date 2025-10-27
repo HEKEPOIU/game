@@ -391,7 +391,7 @@ main :: proc() {
             }
         }
 
-        if input.contain_state(new_input_state.kbm_key.ENTER, {.Alt, .Down}) ||
+        if input.is_down(new_input_state.kbm_key.ENTER, state = {.Alt}) ||
            input.is_down(new_input_state.kbm_key.F11) {
             toggle_fullscreen(hwd)
             continue

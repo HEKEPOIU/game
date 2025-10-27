@@ -131,6 +131,8 @@ Keyboard_Input :: enum u8 {
 Digit_Input_Set :: bit_set[Digit_Input;u8]
 Keyboard_Input_Set :: bit_set[Keyboard_Input;u8]
 
+Keyboard_Modifier_Mask : Keyboard_Input_Set : {.Alt, .Ctrl, .Shift, .Command}
+
 // range from -1 to 1
 Input_1D :: f32
 Input_2D :: [2]Input_1D
