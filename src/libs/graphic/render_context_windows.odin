@@ -61,7 +61,6 @@ Render_Context :: struct {
     bundle:                  ^d3d12.IGraphicsCommandList,
     fence:                   ^d3d12.IFence,
     // Root signatures are limited to 64 DWORDs (2048-bits) [5]. Each root parameter has a cost that counts towards the root signature limit:
-    //
     // 32-bit constants each costs 1 DWORD
     // Inline descriptors each costs 2 DWORDs
     // Descriptor tables each costs 1 DWORD
@@ -83,6 +82,7 @@ Render_Context :: struct {
     current_width:           u32,
     current_height:          u32,
     is_initial:              b32,
+    support_tearing:         b32,
 }
 
 Get_Asset_Func :: proc(
@@ -194,7 +194,6 @@ load_pipeline :: proc(using ctx: ^Render_Context, hwd: win.HWND, height: u32, wi
         swap_chain_flags: dxgi.SWAP_CHAIN
 
         {     // Check support tearing
-            support_tearing: b32 = false
             factory->CheckFeatureSupport(
                 .PRESENT_ALLOW_TEARING,
                 &support_tearing,
@@ -352,7 +351,6 @@ resize :: proc(using ctx: ^Render_Context, width: u32, height: u32) {
 
 load_assets :: proc(using ctx: ^Render_Context) {
     {     // Create empty root signature
-
         feature_data := d3d12.FEATURE_DATA_ROOT_SIGNATURE{._1_1}
         if (win.FAILED(
                    device->CheckFeatureSupport(
@@ -515,7 +513,6 @@ load_assets :: proc(using ctx: ^Render_Context) {
                 (^rawptr)(&pipeline_state),
             ),
         )
-
     }
 
 
@@ -530,57 +527,54 @@ load_assets :: proc(using ctx: ^Render_Context) {
         ),
     )
 
-    {     // Create Vertex buffer
-        vertices := [3]Vertex {
-            {position = {0, 0.25 * aspect_ratio, 0}, uv = {0.5, 0}},
-            {position = {0.25, -0.25 * aspect_ratio, 0}, uv = {1, 1}},
-            {position = {-0.25, -0.25 * aspect_ratio, 0}, uv = {0, 1}},
-        }
-        vertex_buffer_size: u64 = size_of(vertices)
 
-        upload_heap_properties := get_heap_properties(.UPLOAD)
-        resource_buffer_desc := get_resource_buffer_desc(vertex_buffer_size)
+    // upload_buffer: ^d3d12.IResource
+    // defer upload_buffer->Release()
+
+    uploader := Resource_Uploader{}
+    init_uploader(device, &uploader, 1 * mem.Megabyte, context.temp_allocator)
+    defer release_uploader(&uploader)
+
+
+    vertices := [3]Vertex {
+        {position = {0, 0.25 * aspect_ratio, 0}, uv = {0.5, 0}},
+        {position = {0.25, -0.25 * aspect_ratio, 0}, uv = {1, 1}},
+        {position = {-0.25, -0.25 * aspect_ratio, 0}, uv = {0, 1}},
+    }
+    vertex_buffer_size: u64 = size_of(vertices)
+    {     // Create Vertex Buffer, but are not fill it yet.
+        vertex_buffer_proc := get_heap_properties(.DEFAULT)
+        resource_buffer_desc := get_buffer_resource_desc(vertex_buffer_size)
         ensure_success(
             device->CreateCommittedResource(
-                &upload_heap_properties,
+                &vertex_buffer_proc,
                 {},
                 &resource_buffer_desc,
-                d3d12.RESOURCE_STATE_GENERIC_READ,
+                {.COPY_DEST},
                 nil,
                 d3d12.IResource_UUID,
                 (^rawptr)(&vertex_buffer),
             ),
         )
 
-
-        data_begin: rawptr
-        range := d3d12.RANGE{}
-        vertex_buffer->Map(0, &range, &data_begin)
-        mem.copy(data_begin, &vertices[0], int(vertex_buffer_size))
-        vertex_buffer->Unmap(0, nil)
         vertex_buffer_view = {
             BufferLocation = vertex_buffer->GetGPUVirtualAddress(),
             StrideInBytes  = size_of(Vertex),
             SizeInBytes    = u32(vertex_buffer_size),
         }
     }
+    {     // Upload Vertex buffer
+        vertex_subresource := d3d12.SUBRESOURCE_DATA {
+            pData = &vertices[0],
+        }
+        push_item(&uploader, vertex_buffer, vertex_subresource, vertex_buffer_size)
+        set_resource_transition(&uploader, vertex_buffer, {.VERTEX_AND_CONSTANT_BUFFER})
+    }
 
     {     // Create Constant Buffer
         cb_size: u64 = size_of(Scene_Constant_Buffer)
+        ensure(create_upload_buffer(device, cb_size, &constant_buffer))
 
-        upload_heap_properties := get_heap_properties(.UPLOAD)
-        resource_buffer_desc := get_resource_buffer_desc(cb_size)
-        ensure_success(
-            device->CreateCommittedResource(
-                &upload_heap_properties,
-                {},
-                &resource_buffer_desc,
-                d3d12.RESOURCE_STATE_GENERIC_READ,
-                nil,
-                d3d12.IResource_UUID,
-                (^rawptr)(&constant_buffer),
-            ),
-        )
         cbv_desc := d3d12.CONSTANT_BUFFER_VIEW_DESC {
             BufferLocation = constant_buffer->GetGPUVirtualAddress(),
             SizeInBytes    = u32(cb_size),
@@ -593,14 +587,12 @@ load_assets :: proc(using ctx: ^Render_Context) {
         read_range := d3d12.RANGE{}
         ensure_success(constant_buffer->Map(0, &read_range, (^rawptr)(&cbv_data_begin)))
         mem.copy(cbv_data_begin, &cbv_data, size_of(Scene_Constant_Buffer))
-
     }
 
-    texture_upload_heap: ^d3d12.IResource
-    defer texture_upload_heap->Release()
+    // texture_upload_heap: ^d3d12.IResource
+    // defer texture_upload_heap->Release()
 
     {     // Texture Create
-
         texture_desc := d3d12.RESOURCE_DESC {
             MipLevels = 1,
             Format = .R8G8B8A8_UNORM,
@@ -625,44 +617,6 @@ load_assets :: proc(using ctx: ^Render_Context) {
             ),
         )
 
-        upload_heap_prop := get_heap_properties(.UPLOAD)
-        upload_buffer_size := get_required_intermediate_size(texture, 0, 1)
-        resource_buffer_desc := get_resource_buffer_desc(upload_buffer_size)
-        ensure_success(
-            device->CreateCommittedResource(
-                &upload_heap_prop,
-                {},
-                &resource_buffer_desc,
-                d3d12.RESOURCE_STATE_GENERIC_READ,
-                nil,
-                d3d12.IResource_UUID,
-                (^rawptr)(&texture_upload_heap),
-            ),
-        )
-
-        texture_data := generate_checkerboard_texture()
-
-        texture_subresource_data := d3d12.SUBRESOURCE_DATA {
-            pData      = &texture_data[0],
-            RowPitch   = TEXTURE_WIDTH * TEXTURE_PIXEL_SIZE,
-            SlicePitch = TEXTURE_SIZE,
-        }
-        subresources := [1]d3d12.SUBRESOURCE_DATA{texture_subresource_data}
-        ensure(
-            update_subresources_from_stack(
-                command_list,
-                texture,
-                texture_upload_heap,
-                0,
-                0,
-                1,
-                subresources[:],
-            ),
-        )
-
-        barrier := transition(texture, {.COPY_DEST}, {.PIXEL_SHADER_RESOURCE})
-        command_list->ResourceBarrier(1, &barrier)
-
         srv_desc := d3d12.SHADER_RESOURCE_VIEW_DESC {
             Shader4ComponentMapping = d3d12.DEFAULT_SHADER_4_COMPONENT_MAPPING,
             Format = texture_desc.Format,
@@ -674,6 +628,24 @@ load_assets :: proc(using ctx: ^Render_Context) {
         srv_cbv_heap->GetCPUDescriptorHandleForHeapStart(&heap_handle)
         device->CreateShaderResourceView(texture, &srv_desc, heap_handle)
     }
+
+    {     // Upload texture
+        upload_buffer_size := get_required_intermediate_size(texture, 0, 1)
+
+        texture_data := generate_checkerboard_texture()
+
+        texture_subresource_data := d3d12.SUBRESOURCE_DATA {
+            pData      = &texture_data[0],
+            RowPitch   = TEXTURE_WIDTH * TEXTURE_PIXEL_SIZE,
+            SlicePitch = TEXTURE_SIZE,
+        }
+
+        push_item(&uploader, texture, texture_subresource_data, upload_buffer_size)
+        set_resource_transition(&uploader, texture, {.PIXEL_SHADER_RESOURCE})
+    }
+
+    upload_resources(device, command_list, &uploader)
+
 
     ensure_success(command_list->Close())
     command_lists := []^d3d12.ICommandList{command_list}
@@ -693,6 +665,8 @@ load_assets :: proc(using ctx: ^Render_Context) {
         bundle->SetGraphicsRootSignature(root_signature)
         heaps := []^d3d12.IDescriptorHeap{srv_cbv_heap}
         // must match the calling command list descriptor heap
+        // must set here currently guess that binding the GraphicsRootDescriptorTable will check is currently descriptor heap is set,
+        // so that bundle can execute without binding the data on it.
         bundle->SetDescriptorHeaps(u32(len(heaps)), raw_data(heaps))
 
         {     // srv set
@@ -746,19 +720,6 @@ populate_command_list :: proc(using ctx: ^Render_Context) {
     // must match the calling command list descriptor heap
     command_list->SetDescriptorHeaps(u32(len(heaps)), raw_data(heaps))
 
-    {     // srv set
-        handle: d3d12.GPU_DESCRIPTOR_HANDLE
-        srv_cbv_heap->GetGPUDescriptorHandleForHeapStart(&handle)
-        command_list->SetGraphicsRootDescriptorTable(0, handle)
-    }
-
-    {     // cbv set
-        handle: d3d12.GPU_DESCRIPTOR_HANDLE
-        srv_cbv_heap->GetGPUDescriptorHandleForHeapStart(&handle)
-        offset_desc_handle(&handle, 1, srv_cbv_descriptor_size)
-        command_list->SetGraphicsRootDescriptorTable(1, handle)
-    }
-
     viewport := get_viewport(current_width, current_height)
     scissor_rect := get_scissor_rect(current_width, current_height)
     command_list->RSSetViewports(1, &viewport)
@@ -789,7 +750,13 @@ render :: proc(using ctx: ^Render_Context) {
     command_lists := []^d3d12.ICommandList{command_list}
     command_queue->ExecuteCommandLists(u32(len(command_lists)), raw_data(command_lists))
 
-    ensure_success(swap_chain->Present(0, {}))
+    // TODO: Add Config Option after separate thread
+    vsync :: false
+    flags: dxgi.PRESENT
+    if support_tearing && !vsync {
+        flags = {.ALLOW_TEARING}
+    }
+    ensure_success(swap_chain->Present(vsync ? 1 : 0, flags))
     move_to_next_frame(ctx)
 }
 

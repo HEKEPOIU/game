@@ -1,25 +1,34 @@
 package graphic
 
+import sa "core:container/small_array"
 import "core:mem"
 import win "core:sys/windows"
 import "vendor:directx/d3d12"
 import "vendor:directx/dxgi"
 
 
-offset_desc_handle :: proc{
+offset_desc_handle :: proc {
     offset_desc_handle_cpu,
     offset_desc_handle_gpu,
 }
 
 @(private)
-offset_desc_handle_cpu :: proc(base: ^d3d12.CPU_DESCRIPTOR_HANDLE, offset: i32, increment_size: u32) {
+offset_desc_handle_cpu :: proc(
+    base: ^d3d12.CPU_DESCRIPTOR_HANDLE,
+    offset: i32,
+    increment_size: u32,
+) {
     base^ = d3d12.CPU_DESCRIPTOR_HANDLE {
         ptr = win.SIZE_T(i64(base.ptr) + i64(offset) * i64(increment_size)),
     }
 }
 
 @(private)
-offset_desc_handle_gpu :: proc(base: ^d3d12.GPU_DESCRIPTOR_HANDLE, offset: i32, increment_size: u32) {
+offset_desc_handle_gpu :: proc(
+    base: ^d3d12.GPU_DESCRIPTOR_HANDLE,
+    offset: i32,
+    increment_size: u32,
+) {
     base^ = d3d12.GPU_DESCRIPTOR_HANDLE {
         ptr = u64(i64(base.ptr) + i64(offset) * i64(increment_size)),
     }
@@ -102,7 +111,7 @@ get_heap_properties :: proc(type: d3d12.HEAP_TYPE) -> d3d12.HEAP_PROPERTIES {
     }
 }
 
-get_resource_buffer_desc :: proc(
+get_buffer_resource_desc :: proc(
     size: u64,
     flags: d3d12.RESOURCE_FLAGS = {},
     alignment: u64 = 0,
@@ -269,7 +278,7 @@ update_subresources :: proc(
     destination_resource: ^d3d12.IResource,
     intermediate: ^d3d12.IResource,
     first_subresource: u32,
-    num_sub_resources: u32,
+    num_subresources: u32,
     required_size: u64,
     layouts: []d3d12.PLACED_SUBRESOURCE_FOOTPRINT,
     num_rows: []u32,
@@ -278,10 +287,10 @@ update_subresources :: proc(
 ) -> (
     ok: bool,
 ) #no_bounds_check {
-    assert(int(num_sub_resources) == len(layouts))
-    assert(int(num_sub_resources) == len(num_rows))
-    assert(int(num_sub_resources) == len(row_sizes_in_bytes))
-    assert(int(num_sub_resources) == len(src_data))
+    assert(int(num_subresources) == len(layouts))
+    assert(int(num_subresources) == len(num_rows))
+    assert(int(num_subresources) == len(row_sizes_in_bytes))
+    assert(int(num_subresources) == len(src_data))
     intermediate_desc: d3d12.RESOURCE_DESC = ---
     destination_desc: d3d12.RESOURCE_DESC = ---
     intermediate->GetDesc(&intermediate_desc)
@@ -289,14 +298,15 @@ update_subresources :: proc(
     if (intermediate_desc.Dimension != .BUFFER ||
            intermediate_desc.Width < required_size + layouts[0].Offset ||
            (destination_desc.Dimension == .BUFFER &&
-                   (first_subresource != 0 || num_sub_resources != 1))) {
+                   (first_subresource != 0 || num_subresources != 1))) {
         return false
     }
 
+    // Copy data into intermediate resource(upload heap)
     data: ^byte
     result := intermediate->Map(0, nil, (^rawptr)(&data))
     if (win.FAILED(result)) do return true
-    for i: u32; i < num_sub_resources; i += 1 {
+    for i: u32; i < num_subresources; i += 1 {
         start := mem.ptr_offset(data, layouts[i].Offset)
         dest_data: d3d12.MEMCPY_DEST = {
             pData      = start,
@@ -313,6 +323,7 @@ update_subresources :: proc(
     }
     intermediate->Unmap(0, nil)
 
+    // "Upload" the intermediate resource to the destination resource
     if destination_desc.Dimension == .BUFFER {
 
         cmd_list->CopyBufferRegion(
@@ -323,7 +334,7 @@ update_subresources :: proc(
             u64(layouts[0].Footprint.Width),
         )
     } else {
-        for i: u32; i < num_sub_resources; i += 1 {
+        for i: u32; i < num_subresources; i += 1 {
             dest := get_texture_copy_location(destination_resource, i + first_subresource)
             src := get_texture_copy_location(intermediate, layouts[i])
             cmd_list->CopyTextureRegion(&dest, 0, 0, 0, &src, nil)
@@ -336,27 +347,85 @@ update_subresources_from_stack :: proc(
     cmd_list: ^d3d12.IGraphicsCommandList,
     destination_resource: ^d3d12.IResource,
     intermediate: ^d3d12.IResource,
-    intermediate_offset: u64,
+    intermediate_offset: u64, // Base offset of intermediate heap
     first_subresource: u32,
-    $num_sub_resources: u32,
+    num_subresources: u32,
     src_data: []d3d12.SUBRESOURCE_DATA,
 ) -> (
-    err: bool,
+    ok: bool,
 ) #no_bounds_check {
-    assert(int(num_sub_resources) == len(src_data))
+    MAXSUBRESOURCES_ON_STACK :: 10
+    assert(
+        int(num_subresources) <= MAXSUBRESOURCES_ON_STACK,
+        "Please make sure that the number of subresources is less than or equal to 10",
+    )
+    assert(int(num_subresources) == len(src_data))
     require_size: u64 = 0
-    layout: [num_sub_resources]d3d12.PLACED_SUBRESOURCE_FOOTPRINT
-    num_rows: [num_sub_resources]u32
-    row_sizes_in_bytes: [num_sub_resources]u64
+    layout: sa.Small_Array(MAXSUBRESOURCES_ON_STACK, d3d12.PLACED_SUBRESOURCE_FOOTPRINT)
+    sa.resize(&layout, int(num_subresources))
+    num_rows: sa.Small_Array(MAXSUBRESOURCES_ON_STACK, u32)
+    sa.resize(&num_rows, int(num_subresources))
+    row_sizes_in_bytes: sa.Small_Array(MAXSUBRESOURCES_ON_STACK, u64)
+    sa.resize(&row_sizes_in_bytes, int(num_subresources))
 
-    desc : d3d12.RESOURCE_DESC
+    desc: d3d12.RESOURCE_DESC
     destination_resource->GetDesc(&desc)
     device: ^d3d12.IDevice = ---
     destination_resource->GetDevice(d3d12.IDevice_UUID, (^rawptr)(&device))
     device->GetCopyableFootprints(
         &desc,
         first_subresource,
-        num_sub_resources,
+        num_subresources,
+        intermediate_offset,
+        raw_data(sa.slice(&layout)),
+        raw_data(sa.slice(&num_rows)),
+        raw_data(sa.slice(&row_sizes_in_bytes)),
+        &require_size,
+    )
+    device->Release()
+
+    return update_subresources(
+        cmd_list,
+        destination_resource,
+        intermediate,
+        first_subresource,
+        num_subresources,
+        require_size,
+        sa.slice(&layout),
+        sa.slice(&num_rows),
+        sa.slice(&row_sizes_in_bytes),
+        src_data,
+    )
+}
+
+update_subresources_from_heap :: proc(
+    cmd_list: ^d3d12.IGraphicsCommandList,
+    destination_resource: ^d3d12.IResource,
+    intermediate: ^d3d12.IResource,
+    intermediate_offset: u64, // Base offset of intermediate heap
+    first_subresource: u32,
+    num_subresources: u32,
+    src_data: []d3d12.SUBRESOURCE_DATA,
+    allocator := context.temp_allocator,
+) -> (
+    ok: bool,
+) {
+    assert(int(num_subresources) == len(src_data))
+    require_size: u64 = 0
+    context.allocator = allocator
+    defer free_all(allocator)
+    layout := make([dynamic]d3d12.PLACED_SUBRESOURCE_FOOTPRINT, num_subresources)
+    num_rows := make([dynamic]u32, num_subresources)
+    row_sizes_in_bytes := make([dynamic]u64, num_subresources)
+
+    desc: d3d12.RESOURCE_DESC
+    destination_resource->GetDesc(&desc)
+    device: ^d3d12.IDevice = ---
+    destination_resource->GetDevice(d3d12.IDevice_UUID, (^rawptr)(&device))
+    device->GetCopyableFootprints(
+        &desc,
+        first_subresource,
+        num_subresources,
         intermediate_offset,
         raw_data(layout[:]),
         raw_data(num_rows[:]),
@@ -370,7 +439,7 @@ update_subresources_from_stack :: proc(
         destination_resource,
         intermediate,
         first_subresource,
-        num_sub_resources,
+        num_subresources,
         require_size,
         layout[:],
         num_rows[:],
