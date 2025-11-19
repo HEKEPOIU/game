@@ -18,15 +18,6 @@ TEXTURE_PIXEL_SIZE :: 4
 
 TEXTURE_SIZE :: TEXTURE_WIDTH * TEXTURE_HEIGHT * TEXTURE_PIXEL_SIZE
 
-
-WaitForGpu :: proc(using ctx: ^Render_Context) {
-    ensure_success(command_queue->Signal(fence, fence_value[frame_index]))
-    ensure_success(fence->SetEventOnCompletion(fence_value[frame_index], fence_event))
-    win.WaitForSingleObject(fence_event, win.INFINITE)
-
-    fence_value[frame_index] += 1
-}
-
 move_to_next_frame :: proc(using ctx: ^Render_Context) {
     current_fence_value := fence_value[frame_index]
     // The Signal method not increment the fence immediately,
@@ -68,6 +59,7 @@ Render_Context :: struct {
     pipeline_state:          ^d3d12.IPipelineState,
     vertex_buffer:           ^d3d12.IResource,
     constant_buffer:         ^d3d12.IResource,
+    uploader:                Resource_Uploader,
     cbv_data_begin:          ^byte,
     cbv_data:                Scene_Constant_Buffer,
     vertex_buffer_view:      d3d12.VERTEX_BUFFER_VIEW,
@@ -328,7 +320,7 @@ resize :: proc(using ctx: ^Render_Context, width: u32, height: u32) {
     update_window_size(ctx, width, height)
 
     if !is_initial do return
-    WaitForGpu(ctx)
+    WaitForGpu(command_queue, fence, &fence_value[frame_index], fence_event)
     for f: u32; f < FRAME_COUNT; f += 1 {
         render_targets[f]->Release()
         fence_value[f] = fence_value[frame_index]
@@ -526,14 +518,11 @@ load_assets :: proc(using ctx: ^Render_Context) {
             (^rawptr)(&command_list),
         ),
     )
+    command_list->Close()
 
 
-    // upload_buffer: ^d3d12.IResource
-    // defer upload_buffer->Release()
-
-    uploader := Resource_Uploader{}
-    init_uploader(device, &uploader, 1 * mem.Megabyte, context.temp_allocator)
-    defer release_uploader(&uploader)
+    uploader = Resource_Uploader{}
+    init_uploader(&uploader, device, 4 * mem.Megabyte, context.temp_allocator)
 
 
     vertices := [3]Vertex {
@@ -589,9 +578,6 @@ load_assets :: proc(using ctx: ^Render_Context) {
         mem.copy(cbv_data_begin, &cbv_data, size_of(Scene_Constant_Buffer))
     }
 
-    // texture_upload_heap: ^d3d12.IResource
-    // defer texture_upload_heap->Release()
-
     {     // Texture Create
         texture_desc := d3d12.RESOURCE_DESC {
             MipLevels = 1,
@@ -644,12 +630,7 @@ load_assets :: proc(using ctx: ^Render_Context) {
         set_resource_transition(&uploader, texture, {.PIXEL_SHADER_RESOURCE})
     }
 
-    upload_resources(device, command_list, &uploader)
-
-
-    ensure_success(command_list->Close())
-    command_lists := []^d3d12.ICommandList{command_list}
-    command_queue->ExecuteCommandLists(u32(len(command_lists)), raw_data(command_lists))
+    handle := flush_resources(&uploader, device)
 
     {
         ensure_success(
@@ -706,7 +687,10 @@ load_assets :: proc(using ctx: ^Render_Context) {
             log.errorf("{}", win.HRESULT_FROM_WIN32(win.GetLastError()))
             ensure(false, "Failed to create fence event")
         }
-        WaitForGpu(ctx)
+    }
+
+    for !is_finished(&uploader, handle) {
+        update_uploader(&uploader)
     }
 }
 
@@ -746,6 +730,8 @@ populate_command_list :: proc(using ctx: ^Render_Context) {
 }
 
 render :: proc(using ctx: ^Render_Context) {
+    update_uploader(&uploader)
+
     populate_command_list(ctx)
     command_lists := []^d3d12.ICommandList{command_list}
     command_queue->ExecuteCommandLists(u32(len(command_lists)), raw_data(command_lists))
@@ -772,10 +758,11 @@ update :: proc(using ctx: ^Render_Context) {
 }
 
 destroy_render_context :: proc(using ctx: ^Render_Context) {
-    WaitForGpu(ctx)
+    WaitForGpu(command_queue, fence, &fence_value[frame_index], fence_event)
     win.CloseHandle(fence_event)
     vertex_buffer->Release()
     fence->Release()
+    release_uploader(&uploader)
     command_list->Release()
     constant_buffer->Release()
     bundle->Release()
