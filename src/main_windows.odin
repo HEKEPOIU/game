@@ -349,6 +349,8 @@ main :: proc() {
 
         update_input_state(new_input_state, controller_map, &registed_device)
 
+        log.infof("mouse_input: {}", new_input_state.mouse_state.mouse_position)
+
 
         // if new_input_state.mouse_state.wheel_delta != 0 {
         //     util.debug_printf("mouse_input: %v", new_input_state.mouse_state.wheel_delta)
@@ -591,10 +593,7 @@ update_input_state :: proc(
             yPos := win.GET_Y_LPARAM(msg.lParam)
             // FIXME: This will cause first mouse delta vary large, not sure how to handle this?
             temp := input_state.mouse_state.mouse_position
-            input_state.mouse_state.mouse_position = {
-                .X = xPos,
-                .Y = yPos,
-            }
+            input_state.mouse_state.mouse_position = {f32(xPos), f32(yPos)}
             input_state.mouse_state.mouse_delta = temp - input_state.mouse_state.mouse_position
         case win.WM_MOUSEWHEEL:
             delta := win.GET_WHEEL_DELTA_WPARAM(msg.wParam)
@@ -1145,3 +1144,4 @@ notify_client: Audio_Manager = {
         },
     },
 }
+

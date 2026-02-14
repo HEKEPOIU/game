@@ -1,3 +1,4 @@
+#+feature using-stmt
 package graphic
 
 import "base:runtime"
@@ -32,6 +33,7 @@ move_to_next_frame :: proc(using ctx: ^Render_Context) {
 
     fence_value[frame_index] = current_fence_value + 1
 }
+
 
 //TODO: Pass own temp allocator and allocator to that it manage by render system
 Render_Context :: struct {
@@ -428,10 +430,10 @@ load_assets :: proc(using ctx: ^Render_Context) {
         }
         shader_path, err := get_asset("texture_constant_buffer.hlsl", context.temp_allocator)
         ensure(err == .None, "Failed to get shader")
-        p := win.utf8_to_utf16_alloc(shader_path)
+        p := win.utf8_to_wstring(shader_path)
         ensure_success(
             d3dc.CompileFromFile(
-                raw_data(p),
+                cstring16(p),
                 nil,
                 nil,
                 "VSMain",
@@ -444,7 +446,7 @@ load_assets :: proc(using ctx: ^Render_Context) {
         )
         ensure_success(
             d3dc.CompileFromFile(
-                raw_data(p),
+                p,
                 nil,
                 nil,
                 "PSMain",
@@ -787,3 +789,4 @@ destroy_render_context :: proc(using ctx: ^Render_Context) {
     device->Release()
     factory->Release()
 }
+

@@ -1,5 +1,7 @@
 package input
 
+import "core:math/linalg"
+
 Digit_Input :: enum u8 {
     Down,
     Up,
@@ -10,14 +12,10 @@ Dir :: enum u8 {
     Pos,
     Neg,
 }
-Axis :: enum u8 {
-    X,
-    Y,
-}
 
 Mouse_State :: struct {
-    mouse_position: [Axis]i32,
-    mouse_delta:    [Axis]i32,
+    mouse_position: linalg.Vector2f32,
+    mouse_delta:    linalg.Vector2f32,
     wheel_delta:    f32,
 }
 

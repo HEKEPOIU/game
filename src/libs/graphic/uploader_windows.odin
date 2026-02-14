@@ -1,3 +1,4 @@
+#+feature using-stmt
 #+private
 package graphic
 

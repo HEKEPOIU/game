@@ -9,12 +9,19 @@ The following are the list of implemented/working features:
 - audio support via wasapi (working on, now just playing some sine wav.) 
     - muliti thread audio, audio mixing... are not implemented yet, it will done when I need it.
 
+
+
 # Notes:
 
 If you xbox controller trigger can only work one side please see this [link](https://www.reddit.com/r/xbox/comments/qer8pv/xbox_controller_right_and_left_trigger_merged/),
 basically Microsoft change they driver that make controller trigger merge into one value,
 I just can't solve this for new, when we support xinput it should be fix easily.
 
+
+## Docs
+the [docs](docs/) folder contains some design decisions, and the goal of system went to achieve.
+
+Not api docs, api docs will be written on top of function.
 
 ## Conventions
 
