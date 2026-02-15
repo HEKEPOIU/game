@@ -1,6 +1,5 @@
 package main
 
-import "core:fmt"
 import "core:mem"
 import "core:path/filepath"
 import util "libs:utilities"
@@ -15,6 +14,9 @@ get_asset_path :: proc(
     err: mem.Allocator_Error,
 ) {
     s := util.get_exe_dir() or_return
+    defer if allocator != context.temp_allocator {
+        free_all(context.temp_allocator)
+    }
     paths := [3]string{s, ASSET_PATH, asset}
     res = filepath.join(paths[:], allocator)
     return

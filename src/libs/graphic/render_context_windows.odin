@@ -429,6 +429,7 @@ load_assets :: proc(using ctx: ^Render_Context) {
             compile_flags = {.DEBUG, .SKIP_OPTIMIZATION}
         }
         shader_path, err := get_asset("texture_constant_buffer.hlsl", context.temp_allocator)
+        // defer free_all(context.temp_allocator)
         ensure(err == .None, "Failed to get shader")
         p := win.utf8_to_wstring(shader_path)
         ensure_success(
