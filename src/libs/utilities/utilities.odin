@@ -1,20 +1,45 @@
 package utilities
 
 import "base:intrinsics"
+import "core:os"
 import "core:simd"
 import "core:sys/info"
 
+import "base:runtime"
+import "core:fmt"
 import "core:log"
 import "core:mem"
+import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
+import "core:sys/linux"
 
 
-// TODO: Move it to FileIo module
-// NOTE: This function will allocate memory in context.allocator, 
-// but don't free it, because exe dir will never change at runtime.
-get_exe_dir :: proc {
-    get_exe_dir_win,
+get_exe_dir :: proc(
+    allocator := context.temp_allocator,
+) -> (
+    res: string,
+    err: mem.Allocator_Error,
+) {
+    defer if allocator != context.temp_allocator {
+        free_all(context.temp_allocator)
+    }
+    when ODIN_OS == .Windows {
+        buf: [win.MAX_PATH]u16
+        len := win.GetModuleFileNameW(nil, &buf[0], win.MAX_PATH)
+        res = win.utf16_to_utf8_alloc(buf[:len], context.temp_allocator) or_return
+        res = filepath.dir(res, allocator)
+        return
+    } else when ODIN_OS == .Linux {
+        FILE_NAME_MAX :: 4096
+        buf: [FILE_NAME_MAX]u8
+        len, _ := linux.readlink("/proc/self/exe", buf[:])
+        res = strings.clone_from(buf[:], context.temp_allocator) or_return
+        res = filepath.dir(res, allocator)
+        return
+    } else {
+        #panic("Not Implement for current platform")
+    }
 }
 
 swap :: #force_inline proc(a: ^$T, b: ^T) {
@@ -257,3 +282,38 @@ debug_printf :: #force_inline proc(fmt_str: string, args: ..any, location := #ca
 //
 //     return sum
 // }
+
+
+setup_context :: proc() -> (result: runtime.Context) {
+    // TODO: Implement In Game console logger, to replace the OS console logger.
+    //       so that we can build game with  subsystem:windows
+    result = context
+
+    when ODIN_DEBUG {
+        result.user_ptr = new(mem.Tracking_Allocator)
+        track := (^mem.Tracking_Allocator)(result.user_ptr)
+        mem.tracking_allocator_init(track, context.allocator)
+        result.allocator = mem.tracking_allocator(track)
+    }
+
+    result.logger = log.create_console_logger(
+        opt = {.Level, .Terminal_Color, .Short_File_Path, .Procedure, .Line},
+        allocator = result.allocator,
+    )
+
+    return result
+}
+
+delete_context :: proc(cc: ^runtime.Context) {
+    log.destroy_console_logger(cc.logger)
+    when ODIN_DEBUG {
+        track := (^mem.Tracking_Allocator)(cc.user_ptr)
+        if len(track.allocation_map) > 0 {
+            for _, entry in track.allocation_map {
+                fmt.eprintf("%v leaked %v bytes\n", entry.location, entry.size)
+            }
+        }
+
+        mem.tracking_allocator_destroy(track)
+    }
+}

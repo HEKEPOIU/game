@@ -163,28 +163,9 @@ try_get_default_audio_device :: proc(
 }
 
 main :: proc() {
-    when ODIN_DEBUG {
-        // TODO: Implement In Game console logger, to replace the OS console logger.
-        //       so that we can build game with  subsystem:windows
-
-        track: mem.Tracking_Allocator
-        mem.tracking_allocator_init(&track, context.allocator)
-        context.allocator = mem.tracking_allocator(&track)
-
-        defer {
-            if len(track.allocation_map) > 0 {
-                for _, entry in track.allocation_map {
-                    fmt.eprintf("%v leaked %v bytes\n", entry.location, entry.size)
-                }
-            }
-            mem.tracking_allocator_destroy(&track)
-        }
-        context.logger = log.create_console_logger(
-            opt = {.Level, .Terminal_Color, .Short_File_Path, .Procedure, .Line},
-        )
-
-        defer log.destroy_console_logger(context.logger)
-    }
+    custom_context := util.setup_context()
+    context = custom_context
+    defer util.delete_context(&custom_context)
     global_context = context
 
     // We Use temp allocator for frame lifetime allocator
@@ -1144,4 +1125,3 @@ notify_client: Audio_Manager = {
         },
     },
 }
-
