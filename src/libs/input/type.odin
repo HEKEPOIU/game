@@ -1,6 +1,7 @@
 package input
 
 import "core:math/linalg"
+import "libs:platform"
 
 Digit_Input :: enum u8 {
     Down,
@@ -14,100 +15,16 @@ Dir :: enum u8 {
 }
 
 Mouse_State :: struct {
+    mouse_button:   [platform.Mouse_Button]Keyboard_Input_Set,
     mouse_position: linalg.Vector2f32,
     mouse_delta:    linalg.Vector2f32,
     wheel_delta:    f32,
 }
 
-Keyboard_Mouse_Keys :: struct {
-    // Move 0..9 together, so that loop assign won't be break
-    KEY_0:        Keyboard_Input_Set,
-    KEY_1:        Keyboard_Input_Set,
-    KEY_2:        Keyboard_Input_Set,
-    KEY_3:        Keyboard_Input_Set,
-    KEY_4:        Keyboard_Input_Set,
-    KEY_5:        Keyboard_Input_Set,
-    KEY_6:        Keyboard_Input_Set,
-    KEY_7:        Keyboard_Input_Set,
-    KEY_8:        Keyboard_Input_Set,
-    KEY_9:        Keyboard_Input_Set,
-
-    // Move F1..F12 together, so that loop assign won't be break
-    F1:           Keyboard_Input_Set,
-    F2:           Keyboard_Input_Set,
-    F3:           Keyboard_Input_Set,
-    F4:           Keyboard_Input_Set,
-    F5:           Keyboard_Input_Set,
-    F6:           Keyboard_Input_Set,
-    F7:           Keyboard_Input_Set,
-    F8:           Keyboard_Input_Set,
-    F9:           Keyboard_Input_Set,
-    F10:          Keyboard_Input_Set,
-    F11:          Keyboard_Input_Set,
-    F12:          Keyboard_Input_Set,
-
-    // Move A..Z together, so that loop assign won't be break
-    A:            Keyboard_Input_Set,
-    B:            Keyboard_Input_Set,
-    C:            Keyboard_Input_Set,
-    D:            Keyboard_Input_Set,
-    E:            Keyboard_Input_Set,
-    F:            Keyboard_Input_Set,
-    G:            Keyboard_Input_Set,
-    H:            Keyboard_Input_Set,
-    I:            Keyboard_Input_Set,
-    J:            Keyboard_Input_Set,
-    K:            Keyboard_Input_Set,
-    L:            Keyboard_Input_Set,
-    M:            Keyboard_Input_Set,
-    N:            Keyboard_Input_Set,
-    O:            Keyboard_Input_Set,
-    P:            Keyboard_Input_Set,
-    Q:            Keyboard_Input_Set,
-    R:            Keyboard_Input_Set,
-    S:            Keyboard_Input_Set,
-    T:            Keyboard_Input_Set,
-    U:            Keyboard_Input_Set,
-    V:            Keyboard_Input_Set,
-    W:            Keyboard_Input_Set,
-    X:            Keyboard_Input_Set,
-    Y:            Keyboard_Input_Set,
-    Z:            Keyboard_Input_Set,
-
-    // Move Shift..Alt together, so that loop assign won't be break
-    SHIFT:        Keyboard_Input_Set,
-    CONTROL:      Keyboard_Input_Set,
-    ALT:          Keyboard_Input_Set,
-
-    ESC:          Keyboard_Input_Set,
-    TAB:          Keyboard_Input_Set,
-    ENTER:        Keyboard_Input_Set,
-    MOUSE_LEFT:   Keyboard_Input_Set,
-    MOUSE_RIGHT:  Keyboard_Input_Set,
-    MOUSE_MIDDLE: Keyboard_Input_Set,
-}
-
-Keyboard_Mouse_Keys_State :: struct #raw_union {
-    data:    [size_of(Keyboard_Mouse_Keys)]Keyboard_Input_Set,
-    using _: Keyboard_Mouse_Keys,
-}
-
-Input_State :: struct {
-    using kbm_state:  Keyboard_Mouse_State,
-    controller_state: Controller_State,
-}
-
-Keyboard_Mouse_State :: struct {
-    kbm_key:     Keyboard_Mouse_Keys_State,
-    mouse_state: Mouse_State,
-}
-
 Controller_State :: struct {
-    digitals:
-    [Controller_Known_Value.Left_Trigger -
+    digitals: [Controller_Known_Value.Left_Trigger -
     Controller_Known_Value.DPad_Up]Digit_Input_Set,
-    analogs: 
-    [Controller_Known_Value.Right_Stick_Y -
+    analogs:  [Controller_Known_Value.Right_Stick_Y -
     Controller_Known_Value.Paddle_4]Input_1D,
 }
 
@@ -129,7 +46,7 @@ Keyboard_Input :: enum u8 {
 Digit_Input_Set :: bit_set[Digit_Input;u8]
 Keyboard_Input_Set :: bit_set[Keyboard_Input;u8]
 
-Keyboard_Modifier_Mask : Keyboard_Input_Set : {.Alt, .Ctrl, .Shift, .Command}
+Keyboard_Modifier_Mask :: Keyboard_Input_Set{.Alt, .Ctrl, .Shift, .Command}
 
 // range from -1 to 1
 Input_1D :: f32
@@ -165,9 +82,9 @@ Controller_Known_Value :: enum u8 {
     Back,
     Guide,
     Touchpad,
-    Button_1, // A for Xbox, X for PS 
+    Button_1, // A for Xbox, X for PS
     Button_2, // B for Xbox, O for PS
-    Button_3, // X for Xbox, Square for PS, 
+    Button_3, // X for Xbox, Square for PS,
     Button_4, // Y for Xbox, Triangle for PS
     Misc_1, // mute button for PS, not sure about xbox
     Misc_2, // Switch 2 Pro seem have this button, but i don't know what that.

@@ -1,11 +1,11 @@
 package input
 
 import "base:runtime"
-import "core:log"
 import "core:mem"
 import "core:strconv"
 import "core:strings"
 import util "libs:utilities"
+
 
 get_controller_varient :: proc(
     controller_state: ^Controller_State,
@@ -24,17 +24,20 @@ get_controller_varient :: proc(
 
 is_down :: proc {
     is_down_digit,
-    is_down_keyboard,
+    is_down_keyboard_state,
+    is_down_mouse_state,
 }
 
 is_hold :: proc {
     is_hold_digit,
-    is_hold_keyboard,
+    is_hold_keyboard_state,
+    is_hold_mouse_state,
 }
 
 is_up :: proc {
     is_up_digit,
-    is_up_keyboard,
+    is_up_keyboard_state,
+    is_up_mouse_state,
 }
 
 
@@ -42,6 +45,7 @@ is_down_digit :: #force_inline proc "contextless" (input: Digit_Input_Set) -> b8
     return is_down_keyboard(as_keyboard_input(input))
 }
 
+@(private)
 is_down_keyboard :: #force_inline proc "contextless" (
     input: Keyboard_Input_Set,
     state: Keyboard_Input_Set = {},
@@ -54,6 +58,7 @@ is_up_digit :: #force_inline proc "contextless" (input: Digit_Input_Set) -> b8 {
     return is_up_keyboard(as_keyboard_input(input))
 }
 
+@(private)
 is_up_keyboard :: #force_inline proc "contextless" (
     input: Keyboard_Input_Set,
     state: Keyboard_Input_Set = {},
@@ -66,6 +71,7 @@ is_hold_digit :: #force_inline proc "contextless" (input: Digit_Input_Set) -> b8
     return is_hold_keyboard(as_keyboard_input(input))
 }
 
+@(private)
 is_hold_keyboard :: #force_inline proc "contextless" (
     input: Keyboard_Input_Set,
     state: Keyboard_Input_Set = {},
@@ -114,8 +120,8 @@ as_keyboard_input :: #force_inline proc "contextless" (
 }
 
 make_digit_input :: proc "contextless" (
-    is_down: bool,
-    was_down: bool,
+    is_down: b8,
+    was_down: b8,
 ) -> (
     key_state: Digit_Input_Set,
 ) {
@@ -131,17 +137,6 @@ make_digit_input :: proc "contextless" (
 }
 
 
-make_keyboard_input :: #force_inline proc "contextless" (
-    is_down: bool,
-    was_down: bool,
-    shortcut_set: Keyboard_Input_Set,
-) -> (
-    key_state: Keyboard_Input_Set,
-) {
-    key_state = transmute(Keyboard_Input_Set)make_digit_input(is_down, was_down)
-    key_state = key_state + shortcut_set
-    return
-}
 get_hs_array :: #force_inline proc "contextless" (hs_value: SDL_HS_Value) -> (target_arr: [3]u8) {
     switch hs_value {
     case .North:
