@@ -1,13 +1,22 @@
 package sdl3
 
-when ODIN_OS == .Windows {
-    @(export)
-    foreign import lib "lib/SDL3.lib"
-} else when ODIN_OS == .Linux {
-    @(export)
-    foreign import lib "lib/libSDL3.so"
-} else when ODIN_OS == .Darwin {
-    #panic("got to compile SDL3 for macOS")
-}
+LINK_SAHARD :: #config(SDL_LINK_SHARED, false)
 
+when ODIN_OS == .Windows {
+    when LINK_SAHARD {
+        @(export)
+        foreign import lib "lib/SDL3-shared.lib"
+    } else {
+        @(export)
+        foreign import lib "lib/SDL3-static.lib"
+    }
+} else when ODIN_OS == .Linux || ODIN_OS == .Darwin {
+    when LINK_SAHARD {
+        @(export)
+        foreign import lib "lib/libSDL3.so"
+    } else {
+        @(export)
+        foreign import lib "lib/libSDL3.a"
+    }
+}
 

@@ -6,11 +6,12 @@ import "core:time"
 import "libs:input"
 import "libs:platform"
 import util "libs:utilities"
+import "thrid_party:sdl3"
 
 global_context: runtime.Context
 
-main :: proc() {
 
+main :: proc() {
     global_context = util.setup_context()
     context = global_context
     defer util.delete_context(&global_context)
@@ -21,8 +22,15 @@ main :: proc() {
     window.init_window(&window)
     defer window.destroy_window(&window)
 
-    input_state := input.make_input_state()
-    defer input.delete_input_state(input_state)
+    input_state := input.create_input_state()
+    defer input.destroy_input_state(input_state)
+
+    is_sdl_enable := sdl3.Init({.GAMEPAD})
+    if !is_sdl_enable {
+        log.panicf("SDL ERROR on Init : {}", sdl3.GetError())
+    }
+
+    sdl3.AddGamepadMappingsFromIO()
 
     windows_event: [dynamic]platform.Event
 
@@ -60,6 +68,7 @@ main :: proc() {
                 input.update_mouse_wheel(input_state, e)
             }
         }
+
 
         ms_elapsed := time.tick_since(start_time)
         if ms_elapsed < target_duration {

@@ -1,4 +1,3 @@
-
 package platform
 import "vendor:x11/xlib"
 
@@ -94,7 +93,7 @@ x11_grab_event :: proc(ws: ^Window_State, events: ^[dynamic]Event) {
         case .KeyRelease:
             key := key_from_xkeycode(event.xkey.keycode)
             if (key != .None) {
-                append(events, Keyboard_Input{key = key, is_up = true})
+                append(events, Keyboard_Input{key = key})
             }
 
         case .ButtonPress:
@@ -124,7 +123,7 @@ x11_grab_event :: proc(ws: ^Window_State, events: ^[dynamic]Event) {
             case .Button3:
                 btn = .Middle
             }
-            append(events, MouseButton_Input{button = btn, is_up = true})
+            append(events, MouseButton_Input{button = btn})
 
         case .MotionNotify:
             append(events, Mouse_Move{position = {f32(event.xmotion.x), f32(event.xmotion.y)}})

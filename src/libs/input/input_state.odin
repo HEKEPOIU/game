@@ -1,7 +1,6 @@
 package input
 
 
-import "core:log"
 import "libs:platform"
 import util "libs:utilities"
 
@@ -18,7 +17,7 @@ Input_State :: struct {
 }
 
 
-make_input_state :: proc(allocator := context.allocator) -> ^Input_State {
+create_input_state :: proc(allocator := context.allocator) -> ^Input_State {
     state := new(Input_State, allocator)
     for &i in state.frame_state {
         i.keyboard_state = make(map[platform.Keys]Keyboard_Input_Set, allocator)
@@ -27,7 +26,7 @@ make_input_state :: proc(allocator := context.allocator) -> ^Input_State {
     state.new_input_state = &state.frame_state[1]
     return state
 }
-delete_input_state :: proc(state: ^Input_State) {
+destroy_input_state :: proc(state: ^Input_State) {
     for i in state.frame_state {
         delete(i.keyboard_state)
     }
@@ -59,7 +58,7 @@ next_frame :: proc(s: ^Input_State) {
 }
 
 @(private)
-get_press_state :: proc(is_down: b8, is_hold: b8, is_up: b8) -> Keyboard_Input_Set {
+get_press_state :: proc(is_down: b8, is_hold: b8) -> Keyboard_Input_Set {
     state: Keyboard_Input_Set
     if is_down {
         if !is_hold {
@@ -67,8 +66,7 @@ get_press_state :: proc(is_down: b8, is_hold: b8, is_up: b8) -> Keyboard_Input_S
         } else {
             state += {.Hold}
         }
-    }
-    if is_up {
+    } else {
         state = {.Up}
     }
     return state
@@ -76,7 +74,7 @@ get_press_state :: proc(is_down: b8, is_hold: b8, is_up: b8) -> Keyboard_Input_S
 
 update_key_state :: proc(s: ^Input_State, e: platform.Keyboard_Input) {
 
-    state := get_press_state(e.is_down, is_hold(s, e.key), e.is_up)
+    state := get_press_state(e.is_down, is_hold(s, e.key))
     state += quary_modifier_state(s)
     s.new_input_state.keyboard_state[e.key] = state
 }
@@ -93,7 +91,7 @@ quary_modifier_state :: proc(s: ^Input_State) -> Keyboard_Input_Set {
 
 
 update_mousebutton_state :: proc(s: ^Input_State, e: platform.MouseButton_Input) {
-    state := get_press_state(e.is_down, is_hold(s, e.button), e.is_up)
+    state := get_press_state(e.is_down, is_hold(s, e.button))
     state += quary_modifier_state(s)
     s.new_input_state.mouse_state.mouse_button[e.button] = state
 }

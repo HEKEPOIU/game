@@ -1,9 +1,7 @@
 package utilities
 
 import "base:intrinsics"
-import "core:os"
 import "core:simd"
-import "core:sys/info"
 
 import "base:runtime"
 import "core:fmt"
@@ -48,12 +46,6 @@ swap :: #force_inline proc(a: ^$T, b: ^T) {
     b^ = temp
 }
 
-
-// only use for launching actual game that have different feature(simd, avx2, avx512...).
-dynamic_check_feature :: proc(feature: info.CPU_Feature) -> bool {
-    features := info.cpu.features.? or_return
-    return feature in features
-}
 
 // Target sse4.2 are because arm neon only support 128 bit
 // we provide a generic version for all target

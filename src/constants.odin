@@ -18,6 +18,6 @@ get_asset_path :: proc(
         free_all(context.temp_allocator)
     }
     paths := [3]string{s, ASSET_PATH, asset}
-    res = filepath.join(paths[:], allocator)
+    res = filepath.join(paths[:], allocator) or_return
     return
 }

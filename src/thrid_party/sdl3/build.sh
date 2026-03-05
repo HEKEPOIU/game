@@ -29,12 +29,13 @@ mkdir -p build
 cd build
 
 echo "Configuring SDL..."
-cmake -S .. -B . -DCMAKE_BUILD_TYPE=Release
+cmake -S .. -B . -DCMAKE_BUILD_TYPE=Release -DSDL_STATIC=ON -DSDL_SHARED=ON
 
 echo "Building SDL..."
-cmake --build . --target SDL3-shared
+cmake --build . --target SDL3-shared SDL3-static
 
 cp libSDL3.so "$LIB_DIR"
+cp libSDL3.a "$LIB_DIR"
 
 echo "Cleaning up..."
 rm -rf "$UNZIP_DIR"

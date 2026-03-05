@@ -16,12 +16,10 @@ Window_Close :: struct {}
 Keyboard_Input :: struct {
     key:     Keys,
     is_down: b8,
-    is_up:   b8,
 }
 MouseButton_Input :: struct {
     button:  Mouse_Button,
     is_down: b8,
-    is_up:   b8,
 }
 
 Mouse_Move :: struct {
