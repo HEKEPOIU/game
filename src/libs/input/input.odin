@@ -1,39 +1,25 @@
 package input
 
 
-gamepad_mapping :: #load("./gamecontrollerdb.txt", string)
-
-get_controller_varient :: proc(
-    controller_state: ^Controller_State,
-    k: Controller_Known_Value,
-) -> (
-    value: Controller_Variant,
-) {
-    switch k {
-    case .DPad_Up ..= .Paddle_4:
-        value.digital = &controller_state.digitals[k]
-    case .Left_Trigger ..= .Right_Stick_Y:
-        value.analog = &controller_state.analogs[get_analogs_index(k)]
-    }
-    return
-}
-
 is_down :: proc {
-    is_down_digit,
     is_down_keyboard_state,
     is_down_mouse_state,
+    is_down_controller_state,
+    is_down_digit,
 }
 
 is_hold :: proc {
-    is_hold_digit,
     is_hold_keyboard_state,
     is_hold_mouse_state,
+    is_hold_controller_state,
+    is_hold_digit,
 }
 
 is_up :: proc {
-    is_up_digit,
     is_up_keyboard_state,
     is_up_mouse_state,
+    is_up_controller_state,
+    is_up_digit,
 }
 
 
@@ -82,9 +68,7 @@ contain_state :: #force_inline proc "contextless" (
     return input >= key
 }
 
-make_input_1D_from_digit :: #force_inline proc "contextless" (
-    input: [Dir]Digit_Input_Set,
-) -> Input_1D {
+make_input_1D_from_digit :: #force_inline proc "contextless" (input: [Dir]Digit_Input_Set) -> f32 {
     is_Pos := is_down(input[.Pos]) || is_hold(input[.Pos])
     is_Neg := is_down(input[.Neg]) || is_hold(input[.Neg])
     if is_Pos && !is_Neg {
@@ -98,7 +82,7 @@ make_input_1D_from_digit :: #force_inline proc "contextless" (
 
 make_input_1D_from_keyboard :: #force_inline proc "contextless" (
     input: [Dir]Keyboard_Input_Set,
-) -> Input_1D {
+) -> f32 {
     return make_input_1D_from_digit(
         {.Pos = as_digit_input(input[.Pos]), .Neg = as_digit_input(input[.Neg])},
     )
@@ -113,16 +97,4 @@ as_keyboard_input :: #force_inline proc "contextless" (
     input: Digit_Input_Set,
 ) -> Keyboard_Input_Set {
     return transmute(Keyboard_Input_Set)input
-}
-
-@(private)
-get_analogs_index :: #force_inline proc "contextless" (k: Controller_Known_Value) -> (target: i8) {
-    target = -1
-    switch k {
-    case .DPad_Up ..= .Paddle_4:
-        return
-    case .Left_Trigger ..= .Right_Stick_Y:
-        target = i8(k) - i8(Controller_Known_Value.Paddle_4) - 1
-    }
-    return
 }

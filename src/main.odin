@@ -2,7 +2,7 @@ package main
 
 import "base:runtime"
 import "core:log"
-import "core:time"
+import "libs:core"
 import "libs:input"
 import "libs:platform"
 import util "libs:utilities"
@@ -25,32 +25,31 @@ main :: proc() {
     input_state := input.create_input_state()
     defer input.destroy_input_state(input_state)
 
-    is_sdl_enable := sdl3.Init({.GAMEPAD})
-    if !is_sdl_enable {
-        log.panicf("SDL ERROR on Init : {}", sdl3.GetError())
-    }
 
-    sdl3.AddGamepadMappingsFromIO()
+    log.ensuref(sdl3.Init({.GAMEPAD}), "SDL error on init, Error : {}", sdl3.GetError())
+    // load mapping
+    for m in input.map_data {
+        io := sdl3.IOFromMem(rawptr(m), len(m))
+        added := sdl3.AddGamepadMappingsFromIO(io, true)
+    }
 
     windows_event: [dynamic]platform.Event
 
 
-    target_fps :: 144 // 144f/s
-    target_duration := time.Second / (target_fps)
-
-    total_frames := 0
-    total_time: f32 = 0.
+    game_state := core.Game_State {
+        target_fps = 100,
+    }
 
     defer delete(windows_event)
     quited := false
 
     for !quited {
-        start_time := time.tick_now()
-        clear(&windows_event)
-
+        core.start_frame(&game_state)
+        defer core.end_frame(&game_state)
 
         input.next_frame(input_state)
 
+        clear(&windows_event)
         window.grab_event(&window, &windows_event)
 
         // process event
@@ -68,15 +67,6 @@ main :: proc() {
                 input.update_mouse_wheel(input_state, e)
             }
         }
-
-
-        ms_elapsed := time.tick_since(start_time)
-        if ms_elapsed < target_duration {
-            platform.sleep(target_duration - ms_elapsed)
-        }
-
-
-        total_time := time.tick_since(start_time)
-        total_frames += 1
+        input.update_controller_state(input_state)
     }
 }
