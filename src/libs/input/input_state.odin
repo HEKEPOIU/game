@@ -30,6 +30,16 @@ create_input_state :: proc(allocator := context.allocator) -> ^Input_State {
     state.new_input_state = &state.frame_state[1]
     return state
 }
+
+init_input_state :: proc(state: ^Input_State) {
+    log.ensuref(sdl3.Init({.GAMEPAD}), "SDL error on init, Error : {}", sdl3.GetError())
+    // load mapping
+    for m in map_data {
+        io := sdl3.IOFromMem(rawptr(m), len(m))
+        added := sdl3.AddGamepadMappingsFromIO(io, true)
+    }
+}
+
 destroy_input_state :: proc(state: ^Input_State) {
     for i in state.frame_state {
         delete(i.keyboard_state)
@@ -270,3 +280,4 @@ is_hold_controller_state :: #force_inline proc(s: ^Input_State, button: Gamepad_
 get_axis_value :: #force_inline proc(s: ^Input_State, axis: Gamepad_Axis) -> f32 {
     return s.new_input_state.controller_state.analogs[axis]
 }
+
