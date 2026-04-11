@@ -3,7 +3,7 @@ package platform
 
 Window_State :: struct {
     using window: Window_Interface,
-    state:        rawptr,
+    private_data:        rawptr,
 }
 
 

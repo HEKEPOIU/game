@@ -1,0 +1,183 @@
+package pipewire
+
+import "core:c"
+import "core:fmt"
+import "core:strings"
+import "core:sys/linux"
+
+foreign import pipewire "system:pipewire-0.3"
+
+@(default_calling_convention = "c", link_prefix = "pw_")
+foreign pipewire {
+    init :: proc(argc: ^int, argv: ^[^]cstring) ---
+    deinit :: proc() ---
+    get_library_version :: proc() -> cstring ---
+    get_client_name :: proc() -> cstring ---
+
+    properties_new :: proc(key: cstring, #c_vararg args: ..cstring) -> ^properties ---
+    properties_free :: proc(props: ^properties) ---
+    properties_set :: proc(properties: ^properties, key: cstring, value: cstring) -> int ---
+    properties_setf :: proc(properties: ^properties, key: cstring, format: cstring, #c_vararg args: ..any) -> int ---
+    properties_update_string :: proc(props: ^properties, str: cstring, size: uint) -> int ---
+
+    main_loop_new :: proc(props: ^spa_dict) -> ^main_loop ---
+    main_loop_destroy :: proc(loop: ^main_loop) ---
+    main_loop_get_loop :: proc(main_loop: ^main_loop) -> ^loop ---
+    main_loop_quit :: proc(loop: ^main_loop) -> int ---
+    main_loop_run :: proc(loop: ^main_loop) -> int ---
+
+    thread_loop_new :: proc(name: cstring, props: ^spa_dict) -> ^thread_loop ---
+    thread_loop_new_full :: proc(loop: ^loop, name: cstring, props: ^spa_dict) -> ^thread_loop ---
+    thread_loop_destroy :: proc(loop: ^thread_loop) ---
+    thread_loop_add_listener :: proc(loop: ^thread_loop, listener: ^spa_hook, events: ^thread_loop_events, data: rawptr) ---
+    thread_loop_get_loop :: proc(t_loop: ^thread_loop) -> ^loop ---
+    thread_loop_start :: proc(loop: ^thread_loop) -> int ---
+    thread_loop_stop :: proc(loop: ^thread_loop) ---
+    thread_loop_lock :: proc(loop: ^thread_loop) ---
+    thread_loop_unlock :: proc(loop: ^thread_loop) ---
+    thread_loop_wait :: proc(loop: ^thread_loop) ---
+    thread_loop_timed_wait :: proc(loop: ^thread_loop, wait_max_sec: int) -> int ---
+    thread_loop_get_time :: proc(loop: ^thread_loop, abstime: ^linux.Time_Spec, timeout: i64) -> int ---
+    thread_loop_timed_wait_full :: proc(loop: ^thread_loop, abstime: ^linux.Time_Spec) -> int ---
+    thread_loop_signal :: proc(loop: ^thread_loop, wait_for_accept: bool) ---
+    thread_loop_accept :: proc(loop: ^thread_loop) ---
+    thread_loop_in_thread :: proc(loop: ^thread_loop) -> bool ---
+
+    loop_new :: proc(props: ^spa_dict) -> ^loop ---
+    loop_destroy :: proc(loop: ^loop) ---
+    loop_set_name :: proc(loop: ^loop, name: cstring) ---
+    loop_invoke :: proc(object: ^loop, func: spa_invoke_func_t, seq: u32, data: rawptr, size: uint, block: bool, user_data: rawptr) -> i32 ---
+
+    context_new :: proc(main_loop: ^loop, props: ^properties, user_data_size: uint) -> ^pw_context ---
+    context_destroy :: proc(ctx: ^pw_context) ---
+    context_load_module :: proc(ctx: ^pw_context, name: cstring, args: cstring, properties: ^properties) -> ^impl_module ---
+    context_connect :: proc(ctx: ^pw_context, properties: ^properties, user_data_size: uint) -> ^core ---
+    context_create_metadata :: proc(ctx: ^pw_context, name: cstring, properties: ^properties, user_data_size: uint) -> ^impl_metadata ---
+
+    impl_module_add_listener :: proc(module: ^impl_module, listener: ^spa_hook, events: ^impl_module_events, data: rawptr) ---
+    impl_module_get_info :: proc(module: ^impl_module) -> ^module_info ---
+    stream_set_control :: proc(stream: ^stream, id: u32, n_values: u32, values: ^f32, #c_vararg args: ..any) -> int ---
+
+    core_find_proxy :: proc(core: ^core, id: u32) -> ^proxy ---
+    core_disconnect :: proc(core: ^core) ---
+
+    proxy_get_user_data :: proc(proxy: ^proxy) -> rawptr ---
+    proxy_add_listener :: proc(proxy: ^proxy, listener: ^spa_hook, events: ^proxy_events, data: rawptr) ---
+    proxy_add_object_listener :: proc(proxy: ^proxy, listener: ^spa_hook, events: rawptr, data: rawptr) ---
+    proxy_get_type :: proc(proxy: ^proxy, version: u32) -> cstring ---
+    proxy_destroy :: proc(proxy: ^proxy) ---
+
+    impl_metadata_set_property :: proc(metadata: ^impl_metadata, subject: u32, key, type, value: cstring) -> int ---
+    impl_metadata_get_properties :: proc(metadata: ^impl_metadata) -> ^properties ---
+    impl_metadata_register :: proc(metadata: ^impl_metadata, properties: ^properties) -> int ---
+    impl_metadata_destroy :: proc(metadata: ^impl_metadata) ---
+    impl_metadata_get_user_data :: proc(metadata: ^impl_metadata) -> rawptr ---
+    impl_metadata_get_global :: proc(metadata: ^impl_metadata) -> ^global ---
+    impl_metadata_add_listener :: proc(metadata: ^impl_metadata, listener: ^spa_hook, events: ^impl_module_events, data: rawptr) ---
+
+    stream_new :: proc(core: ^core, name: cstring, props: ^properties) -> ^stream ---
+    stream_new_simple :: proc(loop: ^loop, name: cstring, props: ^properties, events: ^stream_events, data: rawptr) -> ^stream ---
+    stream_destroy :: proc(s: ^stream) ---
+    stream_add_listener :: proc(s: ^stream, listener: ^spa_hook, events: ^stream_events, data: rawptr) ---
+    stream_connect :: proc(s: ^stream, direction: direction, target_id: u32, flags: stream_flags, params: ^^spa_pod, n_params: u32) -> i32 ---
+    stream_dequeue_buffer :: proc(s: ^stream) -> ^buffer ---
+    stream_queue_buffer :: proc(s: ^stream, b: ^buffer) -> i32 ---
+}
+
+properties_update_cstring :: proc(props: ^properties, str: cstring) {
+    properties_update_string(props, str, len(str))
+}
+
+
+// this proc is incomplete and only handles the simple case of '"key": "value"'
+properties_serialize_dict :: proc(sb: ^strings.Builder, dict: ^spa_dict) {
+    for item, idx in dict.items[:dict.n_items] {
+        fmt.sbprintf(sb, "%s", idx == 0 ? "" : ", ")
+        fmt.sbprintf(sb, "\"%s\": \"%s\"", item.key, item.value)
+    }
+}
+
+core_get_registry :: proc(core: ^core, version: u32, user_data_size: c.uint) -> ^registry {
+    _f := get_function_table(core, core_methods)
+    return _f.get_registry(get_callback_data_ptr(core), version, user_data_size)
+}
+
+core_create_object :: proc(
+    core: ^core,
+    factory_name: cstring,
+    type: cstring,
+    version: u32,
+    props: ^spa_dict,
+    user_data_size: c.uint,
+) -> ^proxy {
+    _f := get_function_table(core, core_methods)
+    return(
+        cast(^proxy)_f.create_object(
+            get_callback_data_ptr(core),
+            factory_name,
+            type,
+            version,
+            props,
+            user_data_size,
+        ) \
+    )
+}
+
+core_sync :: proc(core: ^core) -> c.int {
+    _f := get_function_table(core, core_methods)
+    return _f.sync(get_callback_data_ptr(core), 0, 0)
+}
+
+core_add_listener :: proc(
+    core: ^core,
+    listener: ^spa_hook,
+    events: ^core_events,
+    data: rawptr,
+) -> c.int {
+    _f := get_function_table(core, core_methods)
+    return _f.add_listener(get_callback_data_ptr(core), listener, events, data)
+}
+
+registry_add_listener :: proc(
+    registry: ^registry,
+    listener: ^spa_hook,
+    events: ^registry_events,
+    data: rawptr,
+) {
+    _f := get_function_table(registry, registry_methods)
+    _f.add_listener(get_callback_data_ptr(registry), listener, events, data)
+}
+
+
+registry_bind :: proc(
+    registry: ^registry,
+    id: u32,
+    type: cstring,
+    version: u32,
+    user_data_size: uint,
+) -> ^proxy {
+    _f := get_function_table(registry, registry_methods)
+    return cast(^proxy)_f.bind(get_callback_data_ptr(registry), id, type, version, user_data_size)
+}
+
+@(private)
+get_function_table :: #force_inline proc(obj: $G, $T: typeid) -> ^T {
+    return cast(^T)((cast(^spa_interface)obj).cb).funcs
+}
+
+@(private)
+get_callback_data_ptr :: #force_inline proc(obj: $G) -> rawptr {
+
+    return ((cast(^spa_interface)obj).cb).data
+}
+
+registry_destroy :: proc(registry: ^registry, id: u32) -> c.int {
+    _f := get_function_table(registry, registry_methods)
+    return _f.destroy(get_callback_data_ptr(registry), id)
+}
+
+node_set_param :: proc(proxy: ^node, param_id: spa_param_type, flags: u32, pod: ^spa_pod) {
+    _f := get_function_table(proxy, node_methods)
+    _f.set_param(get_callback_data_ptr(proxy), u32(param_id), flags, pod)
+}
+

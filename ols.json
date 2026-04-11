@@ -5,7 +5,7 @@
 	"enable_rename" : true,
 	"collections": [
 		{ "name": "libs", "path": "./src/libs/" },
-		{ "name": "thrid_party", "path": "./src/thrid_party/" }
+		{ "name": "third_party", "path": "./src/third_party/" }
 	],
-	"checker_args": "-debug -vet-shadowing -vet-semicolon",
+	"checker_args": "-debug -vet-shadowing -vet-semicolon"
 }

@@ -2,7 +2,7 @@ package input
 
 import "core:math/linalg"
 import "libs:platform"
-import "thrid_party:sdl3"
+import "third_party:sdl3"
 
 Digit_Input :: enum u8 {
     Down,

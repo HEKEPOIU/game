@@ -13,7 +13,7 @@ import "core:time"
 import "libs:graphic"
 import "libs:input"
 import util "libs:utilities"
-import "thrid_party:coreaudio"
+import "third_party:coreaudio"
 
 running := true
 INIT_WINDOW_WIDTH :: 1280

@@ -1,7 +1,7 @@
 package main
 
 
-// USAGE : odin run tools/gen_controllermap_from_db.odin -file -- src/thrid_party/sdl3/gamecontrollerdb.txt ./src/libs/input (On Project Root Dir)
+// USAGE : odin run tools/gen_controllermap_from_db.odin -file -- src/third_party/sdl3/gamecontrollerdb.txt ./src/libs/input (On Project Root Dir)
 import "core:fmt"
 import "core:log"
 import "core:os"

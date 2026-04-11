@@ -5,7 +5,7 @@ import "core:log"
 import "core:math"
 import "libs:platform"
 import util "libs:utilities"
-import "thrid_party:sdl3"
+import "third_party:sdl3"
 
 Frame_Input_State :: struct {
     keyboard_state:   map[platform.Keys]Keyboard_Input_Set,

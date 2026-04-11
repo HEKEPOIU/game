@@ -2,7 +2,7 @@
 	"$schema": "https://raw.githubusercontent.com/DanielGavin/ols/master/misc/odinfmt.schema.json",
 	"collections": [
 		{ "name": "libs", "path": "./src/libs/" },
-		{ "name": "thrid_party", "path": "./src/thrid_party/" }
+		{ "name": "third_party", "path": "./src/third_party/" }
 	],
 	"tabs": false,
 	"tabs_width": 4
